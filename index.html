@@ -68,7 +68,9 @@ function monthKey(d) { return (d || "").slice(0, 7); }
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 }
-function objToArr(obj) { return Object.entries(obj || {}).map(([id, val]) => ({ id, ...val })); }
+function objToArr(obj) {
+  return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
+}
 
 function StatusBadge({ status }) {
   const meta = STATUS_META[status] || STATUS_META.Pending;
