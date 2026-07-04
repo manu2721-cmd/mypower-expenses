@@ -623,7 +623,7 @@ function MainApp({ user }) {
     await newRef.set({ staffName: me.name, date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" });
     const existingTagNames = tags.map((t) => t.name);
     const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
-    newTagNames.forEach((t) => db.ref("tags").push(t));
+    newTagNames.forEach((t) => db.ref("tags").push({ name: t }));
     flash("Expense submitted.");
   };
 
@@ -634,7 +634,7 @@ function MainApp({ user }) {
     flash("Marked " + status.toLowerCase() + ".");
   };
 
-  const addCategory = (name) => { if (name.trim()) db.ref("categories").push(name.trim()); };
+  const addCategory = (name) => { if (name.trim()) db.ref("categories").push({ name: name.trim() }); };
   const removeCategory = (id) => db.ref("categories/" + id).remove();
 
   const createStaff = async (email, password, displayName) => {
