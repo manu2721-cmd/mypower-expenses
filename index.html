@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MY POWER — Expense Ledger</title>
+
+<!-- Firebase (compat SDK — works with plain script tags, no build step) -->
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-database-compat.js"></script>
+
+<!-- React + Babel (in-browser JSX, no build step) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  :root {
+    --paper: #FAF6EC; --paper-dark: #F1EAD9; --card: #FFFDF6; --ink: #1A1A1A; --ink-soft: #6B6554;
+    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--paper-dark); }
+  body { font-family: 'Inter', sans-serif; color: var(--ink); }
+  input, select, textarea, button { font-family: 'Inter', sans-serif; }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--brand-yellow); outline-offset: 1px; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---------- Firebase setup ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyBYwuDaNI7LXgHhJ9K0TlmLeYW72tc4jZU",
+  authDomain: "mypower-expenses.firebaseapp.com",
+  databaseURL: "https://mypower-expenses-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "mypower-expenses",
+  storageBucket: "mypower-expenses.firebasestorage.app",
+  messagingSenderId: "232819564437",
+  appId: "1:232819564437:web:87a975e967b0369bba609c"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+
+// ---------- helpers ----------
+const PAYMENT_MODES = ["Cash", "Personal Card", "Company Account", "Other"];
+const STATUS_META = {
+  Pending: { color: "var(--pending)", label: "Pending" },
+  Approved: { color: "var(--approved)", label: "Approved" },
+  Rejected: { color: "var(--rejected)", label: "Rejected" },
+  Paid: { color: "var(--paid)", label: "Paid" },
+};
+const BAR_COLORS = ["#F5C300", "#2A6A5A", "#B5762B", "#8C3B3B", "#2F3B52", "#7A6FB0", "#3E7CB1", "#C97C2C"];
+
+function fmtNPR(n) {
+  const v = Number(n) || 0;
+  return "Rs " + v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function monthKey(d) { return (d || "").slice(0, 7); }
+function itemsTotal(items) {
+  return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
+}
+function objToArr(obj) { return Object.entries(obj || {}).map(([id, val]) => ({ id, ...val })); }
+
+function StatusBadge({ status }) {
+  const meta = STATUS_META[status] || STATUS_META.Pending;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 999,
+      fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.04em",
+      textTransform: "uppercase", color: "#fff", background: meta.color, whiteSpace: "nowrap",
+    }}>{meta.label}</span>
+  );
+}
+
+function Card({ children, style }) {
+  return <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 20, ...style }}>{children}</div>;
+}
+const inputStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", fontSize: 14, color: "var(--ink)", width: "100%" };
+const smallSelect = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 13 };
+const ghostBtn = { padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" };
+
+function Field({ label, children }) {
+  return <label style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</label>;
+}
+
+function StatCard({ label, value, accent }) {
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", flex: "1 1 130px" }}>
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 500, marginTop: 4, color: accent || "var(--ink)" }}>{fmtNPR(value)}</div>
+    </div>
+  );
+}
+
+// Simple dependency-free horizontal bar chart with permanent value labels
+function SimpleBarChart({ data }) {
+  if (!data || data.length === 0) return <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nothing to show yet.</div>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {data.map((d, i) => (
+        <div key={d.name} style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: 10, alignItems: "center" }}>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)", textAlign: "right" }}>{d.name}</div>
+          <div style={{ background: "var(--paper-dark)", borderRadius: 6, height: 20, overflow: "hidden" }}>
+            <div style={{ width: `${(d.value / max) * 100}%`, height: "100%", background: BAR_COLORS[i % BAR_COLORS.length], borderRadius: 6 }} />
+          </div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, minWidth: 80 }}>{fmtNPR(d.value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Simple monthly trend as vertical bars with labels
+function SimpleTrendChart({ data }) {
+  if (!data || data.length === 0) return <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nothing to show yet.</div>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 14, height: 220, padding: "10px 4px" }}>
+      {data.map((d) => (
+        <div key={d.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flex: "1 1 0" }}>
+          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtNPR(d.value)}</div>
+          <div style={{ width: "70%", maxWidth: 40, height: `${(d.value / max) * 150}px`, background: "var(--approved)", borderRadius: "4px 4px 0 0" }} />
+          <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{d.name}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Login ----------
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = (e) => {
+    e.preventDefault();
+    setError(""); setBusy(true);
+    auth.signInWithEmailAndPassword(email.trim(), password)
+      .catch((err) => { setError("Login failed — check your email and PIN with your admin."); setBusy(false); });
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <Card style={{ maxWidth: 380, width: "100%" }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
+        <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 24, marginTop: 2, marginBottom: 20 }}>Expense Ledger</div>
+        <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
+          <Field label="Email">
+            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@mypower.com" />
+          </Field>
+          <Field label="PIN / password">
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+          </Field>
+          {error && <div style={{ fontSize: 12.5, color: "var(--rejected)" }}>{error}</div>}
+          <button type="submit" disabled={busy} style={{
+            marginTop: 4, padding: "11px 18px", borderRadius: 8, border: "none",
+            background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: busy ? "wait" : "pointer",
+          }}>{busy ? "Signing in…" : "Sign in"}</button>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+function NoProfileScreen({ email }) {
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <Card style={{ maxWidth: 420, textAlign: "center" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Almost there</div>
+        <div style={{ fontSize: 13.5, color: "var(--ink-soft)", marginBottom: 14 }}>
+          Your login ({email}) works, but isn't linked to a staff profile yet. Ask your admin to add you in the Manage tab.
+        </div>
+        <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+      </Card>
+    </div>
+  );
+}
+
+// ---------- Add Expense ----------
+function AddExpense({ categories, tags, onSubmit }) {
+  const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
+  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()] });
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!form.category && categories[0]) setForm((f) => ({ ...f, category: categories[0].name }));
+  }, [categories]);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const updateItem = (id, field, value) => setForm((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? { ...it, [field]: value } : it)) }));
+  const addItemRow = () => setForm((f) => ({ ...f, items: [...f.items, emptyItem()] }));
+  const removeItemRow = (id) => setForm((f) => ({ ...f, items: f.items.length > 1 ? f.items.filter((it) => it.id !== id) : f.items }));
+
+  const total = itemsTotal(form.items);
+  const hasValidRow = form.items.some((it) => it.tag.trim() && Number(it.qty) > 0 && Number(it.unitPrice) > 0);
+  const canSubmit = hasValidRow && total > 0;
+  let blockReason = !hasValidRow ? "Add at least one item with a quantity and a unit price above zero." : "";
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    await onSubmit(form);
+    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()] });
+    setSubmitting(false);
+  };
+
+  return (
+    <Card style={{ maxWidth: 660 }}>
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
+      <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field label="Date"><input type="date" value={form.date} onChange={set("date")} required style={inputStyle} /></Field>
+          <Field label="Category">
+            <select value={form.category} onChange={set("category")} required style={inputStyle}>
+              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Items">
+          <datalist id="tag-suggestions">{tags.map((t) => <option key={t.id} value={t.name} />)}</datalist>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, fontSize: 11, color: "var(--ink-soft)", padding: "0 2px" }}>
+              <span>Item / tag</span><span>Qty</span><span>Unit price</span><span>Subtotal</span><span></span>
+            </div>
+            {form.items.map((it) => {
+              const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+              return (
+                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, alignItems: "center" }}>
+                  <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
+                    placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
+                  <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
+                    style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                  <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
+                    placeholder="0" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: "var(--ink-soft)", textAlign: "right", paddingRight: 4 }}>
+                    {subtotal > 0 ? fmtNPR(subtotal) : "—"}
+                  </div>
+                  <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
+                    style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
+                      color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 18, lineHeight: 1 }}>×</button>
+                </div>
+              );
+            })}
+          </div>
+          <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start" }}>+ Add item</button>
+        </Field>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+          <span style={{ fontSize: 13, color: "var(--ink-soft)", fontWeight: 600 }}>Total</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 600 }}>{fmtNPR(total)}</span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field label="Payment mode">
+            <select value={form.paymentMode} onChange={set("paymentMode")} style={inputStyle}>
+              {PAYMENT_MODES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </Field>
+          <Field label="Note / purpose">
+            <input value={form.note} onChange={set("note")} placeholder="Optional context" style={inputStyle} />
+          </Field>
+        </div>
+
+        {blockReason && !submitting && (
+          <div style={{ fontSize: 12.5, color: "var(--pending)", background: "#FFF3DE", border: "1px solid var(--pending)", borderRadius: 8, padding: "8px 12px" }}>{blockReason}</div>
+        )}
+
+        <button type="submit" disabled={!canSubmit || submitting} style={{
+          marginTop: 4, padding: "11px 18px", borderRadius: 8, border: "none",
+          background: (!canSubmit || submitting) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14,
+          cursor: (!canSubmit || submitting) ? "not-allowed" : "pointer",
+        }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
+      </form>
+    </Card>
+  );
+}
+
+// ---------- My Expenses ----------
+function MyExpenses({ myName, expenses, onWithdraw, onExport }) {
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
+    .sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, fromDate, toDate]);
+
+  const totals = useMemo(() => {
+    const t = { claimed: 0, approved: 0, pending: 0, paid: 0 };
+    filtered.forEach((e) => {
+      t.claimed += e.amount;
+      if (e.status === "Approved") t.approved += e.amount;
+      if (e.status === "Pending") t.pending += e.amount;
+      if (e.status === "Paid") t.paid += e.amount;
+    });
+    return t;
+  }, [filtered]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Total claimed" value={totals.claimed} />
+        <StatCard label="Approved" value={totals.approved} accent="var(--approved)" />
+        <StatCard label="Pending" value={totals.pending} accent="var(--pending)" />
+        <StatCard label="Paid out" value={totals.paid} accent="var(--paid)" />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 17, fontWeight: 600 }}>{myName}'s claims</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>From</span>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+          <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>To</span>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+          {(fromDate || toDate) && <button onClick={() => { setFromDate(""); setToDate(""); }} style={{ ...ghostBtn, padding: "7px 10px", fontSize: 11.5 }}>Clear</button>}
+          <button onClick={() => onExport(filtered)} style={ghostBtn}>Export CSV</button>
+        </div>
+      </div>
+      {filtered.length === 0 ? (
+        <Card style={{ color: "var(--ink-soft)" }}>{expenses.length === 0 ? 'No expenses logged yet.' : "No expenses in this date range."}</Card>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {filtered.map((e) => (
+            <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.category}</div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{e.date} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
+                {e.items && e.items.length > 0 && (
+                  <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+                    {e.items.map((it, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
+                <StatusBadge status={e.status} />
+                {e.status === "Pending" && <button onClick={() => onWithdraw(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Admin Overview ----------
+function Overview({ expenses, staffMap, categories, onReview, onExport }) {
+  const [staffFilter, setStaffFilter] = useState("All");
+  const [catFilter, setCatFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [view, setView] = useState("table");
+  const [reviewNoteDraft, setReviewNoteDraft] = useState({});
+
+  const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
+
+  const filtered = useMemo(() => expenses.filter((e) =>
+    (staffFilter === "All" || e.staffName === staffFilter) &&
+    (catFilter === "All" || e.category === catFilter) &&
+    (statusFilter === "All" || e.status === statusFilter) &&
+    (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate)
+  ).sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, staffFilter, catFilter, statusFilter, fromDate, toDate]);
+
+  const totals = useMemo(() => {
+    const t = { total: 0, pending: 0, approved: 0, paid: 0, rejected: 0 };
+    filtered.forEach((e) => {
+      t.total += e.amount;
+      if (e.status === "Pending") t.pending += e.amount;
+      if (e.status === "Approved") t.approved += e.amount;
+      if (e.status === "Paid") t.paid += e.amount;
+      if (e.status === "Rejected") t.rejected += e.amount;
+    });
+    return t;
+  }, [filtered]);
+
+  const byCategory = useMemo(() => {
+    const m = {}; filtered.forEach((e) => { m[e.category] = (m[e.category] || 0) + e.amount; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byTag = useMemo(() => {
+    const m = {};
+    filtered.forEach((e) => (e.items || []).forEach((it) => { const amt = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0); m[it.tag] = (m[it.tag] || 0) + amt; }));
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byStaff = useMemo(() => {
+    const m = {}; filtered.forEach((e) => { m[e.staffName] = (m[e.staffName] || 0) + e.amount; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byMonth = useMemo(() => {
+    const m = {}; filtered.forEach((e) => { const k = monthKey(e.date); m[k] = (m[k] || 0) + e.amount; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [filtered]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Total in view" value={totals.total} />
+        <StatCard label="Pending review" value={totals.pending} accent="var(--pending)" />
+        <StatCard label="Approved" value={totals.approved} accent="var(--approved)" />
+        <StatCard label="Paid out" value={totals.paid} accent="var(--paid)" />
+        <StatCard label="Rejected" value={totals.rejected} accent="var(--rejected)" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{staffNameList.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{categories.map((c) => <option key={c.id}>{c.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{Object.keys(STATUS_META).map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>From</span>
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>To</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["table", "Table"], ["category", "By Category"], ["tag", "By Tag"], ["staff", "By Staff"], ["trend", "Monthly Trend"]].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{ ...ghostBtn, background: view === id ? "var(--ink)" : "var(--card)", color: view === id ? "var(--paper)" : "var(--ink)" }}>{label}</button>
+          ))}
+          <button onClick={() => onExport(filtered)} style={ghostBtn}>Export CSV</button>
+        </div>
+      </div>
+
+      {view === "table" && (
+        <div style={{ display: "grid", gap: 8 }}>
+          {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No expenses match these filters.</Card>}
+          {filtered.map((e) => (
+            <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "13px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.category}</span></div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{e.date} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
+                {e.items && e.items.length > 0 && (
+                  <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+                    {e.items.map((it, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
+                <StatusBadge status={e.status} />
+                {e.status === "Pending" && (
+                  <>
+                    <input placeholder="Note (for reject)" value={reviewNoteDraft[e.id] || ""} onChange={(ev) => setReviewNoteDraft((d) => ({ ...d, [e.id]: ev.target.value }))}
+                      style={{ ...inputStyle, width: 140, padding: "6px 8px", fontSize: 12 }} />
+                    <button onClick={() => onReview(e.staffUid, e.id, "Approved", reviewNoteDraft[e.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
+                    <button onClick={() => onReview(e.staffUid, e.id, "Rejected", reviewNoteDraft[e.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
+                  </>
+                )}
+                {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {view === "category" && <Card><SimpleBarChart data={byCategory} /></Card>}
+      {view === "tag" && <Card><SimpleBarChart data={byTag} /></Card>}
+      {view === "staff" && <Card><SimpleBarChart data={byStaff} /></Card>}
+      {view === "trend" && <Card><SimpleTrendChart data={byMonth} /></Card>}
+    </div>
+  );
+}
+
+// ---------- Manage (admin only) ----------
+function Manage({ categories, staffMap, myUid, onAddCategory, onRemoveCategory, onCreateStaff, onToggleAdmin, onToggleActive }) {
+  const [newCat, setNewCat] = useState("");
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffPin, setNewStaffPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const createStaff = async () => {
+    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
+      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
+    }
+    setBusy(true); setMsg("");
+    try {
+      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
+      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
+      setMsg("Staff login created.");
+    } catch (err) {
+      setMsg("Could not create login: " + err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Categories</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inputStyle, width: "auto", flex: 1 }}
+            onKeyDown={(e) => { if (e.key === "Enter") { onAddCategory(newCat); setNewCat(""); } }} />
+          <button onClick={() => { onAddCategory(newCat); setNewCat(""); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {categories.map((c) => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+              {c.name}<button onClick={() => onRemoveCategory(c.id)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Remove</button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Create a staff login</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
+          <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
+          <Field label="Email"><input value={newStaffEmail} onChange={(e) => setNewStaffEmail(e.target.value)} placeholder="name@mypower.com" style={inputStyle} /></Field>
+          <Field label="PIN (6+ chars)"><input value={newStaffPin} onChange={(e) => setNewStaffPin(e.target.value)} style={inputStyle} /></Field>
+          <button onClick={createStaff} disabled={busy} style={{ ...ghostBtn, height: 42 }}>{busy ? "Creating…" : "Create"}</button>
+        </div>
+        {msg && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 10 }}>{msg}</div>}
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Staff & permissions</div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {Object.entries(staffMap).map(([uid, s]) => (
+            <div key={uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+              <div>{s.name} {uid === myUid && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                  <input type="checkbox" checked={!!s.isAdmin} onChange={(e) => onToggleAdmin(uid, e.target.checked)} disabled={uid === myUid} /> Admin
+                </label>
+                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                  <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(uid, e.target.checked)} disabled={uid === myUid} /> Active
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------- Main App ----------
+function MainApp({ user }) {
+  const [staffMap, setStaffMap] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [myExpenses, setMyExpenses] = useState([]);
+  const [allExpenses, setAllExpenses] = useState([]);
+  const [tab, setTab] = useState("add");
+  const [toast, setToast] = useState("");
+
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+
+  useEffect(() => {
+    const ref = db.ref("staff");
+    const cb = (snap) => setStaffMap(snap.val() || {});
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, []);
+
+  useEffect(() => {
+    const catRef = db.ref("categories"), tagRef = db.ref("tags");
+    const c1 = (snap) => setCategories(objToArr(snap.val()));
+    const c2 = (snap) => setTags(objToArr(snap.val()));
+    catRef.on("value", c1); tagRef.on("value", c2);
+    return () => { catRef.off("value", c1); tagRef.off("value", c2); };
+  }, []);
+
+  useEffect(() => {
+    const ref = db.ref("expenses/" + user.uid);
+    const cb = (snap) => setMyExpenses(objToArr(snap.val()));
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
+  const me = staffMap ? staffMap[user.uid] : null;
+  const isAdmin = !!(me && me.isAdmin);
+
+  useEffect(() => {
+    if (!isAdmin) { setAllExpenses([]); return; }
+    const ref = db.ref("expenses");
+    const cb = (snap) => {
+      const all = snap.val() || {};
+      const out = [];
+      Object.entries(all).forEach(([uid, exps]) => {
+        Object.entries(exps || {}).forEach(([id, val]) => out.push({ id, staffUid: uid, ...val }));
+      });
+      setAllExpenses(out);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
+
+  if (staffMap === null) return <div style={{ padding: 60, textAlign: "center", color: "var(--ink-soft)" }}>Loading…</div>;
+  if (!me) return <NoProfileScreen email={user.email} />;
+
+  const addExpense = async (form) => {
+    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
+    const amount = itemsTotal(cleanItems);
+    const newRef = db.ref("expenses/" + user.uid).push();
+    await newRef.set({ staffName: me.name, date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" });
+    const existingTagNames = tags.map((t) => t.name);
+    const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
+    newTagNames.forEach((t) => db.ref("tags").push(t));
+    flash("Expense submitted.");
+  };
+
+  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn."); };
+
+  const review = async (staffUid, expenseId, status, note) => {
+    await db.ref("expenses/" + staffUid + "/" + expenseId).update({ status, reviewNote: note || "", reviewedBy: me.name });
+    flash("Marked " + status.toLowerCase() + ".");
+  };
+
+  const addCategory = (name) => { if (name.trim()) db.ref("categories").push(name.trim()); };
+  const removeCategory = (id) => db.ref("categories/" + id).remove();
+
+  const createStaff = async (email, password, displayName) => {
+    const secondary = firebase.initializeApp(firebaseConfig, "secondary-" + Date.now());
+    try {
+      const cred = await secondary.auth().createUserWithEmailAndPassword(email, password);
+      const uid = cred.user.uid;
+      await db.ref("staff/" + uid).set({ name: displayName, isAdmin: false, active: true });
+      await secondary.auth().signOut();
+    } finally {
+      await secondary.delete();
+    }
+  };
+  const toggleAdmin = (uid, val) => db.ref("staff/" + uid + "/isAdmin").set(val);
+  const toggleActive = (uid, val) => db.ref("staff/" + uid + "/active").set(val);
+
+  const exportCSV = (rows) => {
+    const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
+    const lines = [header.join(",")];
+    rows.forEach((e) => {
+      const itemsStr = (e.items || []).map((it) => `${it.tag} x${it.qty} @${it.unitPrice}=${it.qty * it.unitPrice}`).join("; ");
+      const cells = [e.date, e.staffName || me.name, e.category, itemsStr, e.amount, e.paymentMode, e.status, e.note, e.submittedAt, e.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      lines.push(cells.join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `mypower_expenses_${todayStr()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  const tabs = [
+    { id: "add", label: "Add Expense" },
+    { id: "mine", label: "My Expenses" },
+    ...(isAdmin ? [{ id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }] : []),
+  ];
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
+      <div style={{ padding: "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
+        <div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
+          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 26, marginTop: 2 }}>Expense Ledger</div>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isAdmin ? " · Admin" : ""}</span>
+          <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 2, padding: "0 28px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
+        {tabs.map((it) => (
+          <button key={it.id} onClick={() => setTab(it.id)} style={{
+            padding: "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600,
+            color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
+          }}>{it.label}</button>
+        ))}
+      </div>
+
+      <div style={{ padding: "20px 28px" }}>
+        {tab === "add" && <AddExpense categories={categories} tags={tags} onSubmit={addExpense} />}
+        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} />}
+        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={categories} onReview={review} onExport={exportCSV} />}
+        {tab === "manage" && isAdmin && <Manage categories={categories} staffMap={staffMap} myUid={user.uid} onAddCategory={addCategory} onRemoveCategory={removeCategory} onCreateStaff={createStaff} onToggleAdmin={toggleAdmin} onToggleActive={toggleActive} />}
+      </div>
+
+      {toast && (
+        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--ink)", color: "var(--paper)", padding: "10px 18px", borderRadius: 8, fontSize: 13, boxShadow: "0 6px 20px rgba(0,0,0,0.25)", zIndex: 50 }}>{toast}</div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
+  useEffect(() => auth.onAuthStateChanged(setUser), []);
+
+  if (user === undefined) return <div style={{ padding: 60, textAlign: "center", color: "var(--ink-soft)" }}>Loading…</div>;
+  if (!user) return <LoginScreen />;
+  return <MainApp user={user} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
