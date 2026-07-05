@@ -85,10 +85,11 @@ function fmtDateAD(isoStr) {
 function fmtDateBS(isoStr) {
   if (!isoStr) return "";
   try {
-    if (typeof NepaliDate === "undefined") return fmtDateAD(isoStr) + " (BS unavailable)";
+    const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
+    if (!NDClass) return fmtDateAD(isoStr) + " (BS unavailable)";
     const jsDate = new Date(isoStr + "T00:00:00");
     if (isNaN(jsDate)) return isoStr;
-    const nd = new NepaliDate(jsDate);
+    const nd = new NDClass(jsDate);
     return nd.format("DD MMMM YYYY");
   } catch (e) {
     return fmtDateAD(isoStr) + " (BS unavailable)";
@@ -127,6 +128,23 @@ function useIsMobile() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   return isMobile;
+}
+
+function Lightbox({ src, onClose }) {
+  if (!src) return null;
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(20,18,14,0.88)", zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <button onClick={onClose} style={{
+        position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.15)", color: "#fff",
+        border: "none", borderRadius: 8, width: 36, height: 36, fontSize: 20, cursor: "pointer",
+      }}>×</button>
+      <img src={src} alt="Receipt full size" onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: "92%", maxHeight: "88vh", borderRadius: 8, boxShadow: "0 12px 40px rgba(0,0,0,0.5)" }} />
+    </div>
+  );
 }
 
 function MoreMenu({ items }) {
@@ -455,6 +473,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
 
 // ---------- My Expenses ----------
 function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
+  const [lightboxSrc, setLightboxSrc] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
@@ -498,9 +517,9 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 {e.receipt && (
-                  <a href={e.receipt} target="_blank" rel="noopener noreferrer">
+                  <button onClick={() => setLightboxSrc(e.receipt)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
                     <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
-                  </a>
+                  </button>
                 )}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.category}</div>
@@ -526,6 +545,7 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
           ))}
         </div>
       )}
+      <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </div>
   );
 }
@@ -587,6 +607,7 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
   const [toDate, setToDate] = useState("");
   const [view, setView] = useState("table");
   const [reviewNoteDraft, setReviewNoteDraft] = useState({});
+  const [lightboxSrc, setLightboxSrc] = useState(null);
 
   const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
 
@@ -669,9 +690,9 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "13px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 {e.receipt && (
-                  <a href={e.receipt} target="_blank" rel="noopener noreferrer">
+                  <button onClick={() => setLightboxSrc(e.receipt)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
                     <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
-                  </a>
+                  </button>
                 )}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.category}</span></div>
@@ -710,6 +731,7 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
       {view === "tag" && <Card><SimpleBarChart data={byTag} /></Card>}
       {view === "staff" && <Card><SimpleBarChart data={byStaff} /></Card>}
       {view === "trend" && <Card><SimpleTrendChart data={byMonth} /></Card>}
+      <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </div>
   );
 }
