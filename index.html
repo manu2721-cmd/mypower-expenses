@@ -72,6 +72,45 @@ function objToArr(obj) {
   return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
+function MoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+
+  return (
+    <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => setOpen((v) => !v)} style={{ ...ghostBtn, padding: "8px 12px", fontSize: 16, lineHeight: 1 }}>⋯</button>
+      {open && (
+        <div style={{
+          position: "absolute", right: 0, top: "calc(100% + 6px)", background: "var(--card)", border: "1px solid var(--line)",
+          borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 160, zIndex: 40, overflow: "hidden",
+        }}>
+          {items.map((it) => (
+            <button key={it.label} onClick={() => { setOpen(false); it.onClick(); }} style={{
+              display: "block", width: "100%", textAlign: "left", padding: "10px 14px", border: "none", background: "none",
+              cursor: "pointer", fontSize: 13.5, color: it.danger ? "var(--rejected)" : "var(--ink)",
+            }}>{it.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const meta = STATUS_META[status] || STATUS_META.Pending;
   return (
@@ -191,7 +230,7 @@ function NoProfileScreen({ email }) {
 }
 
 // ---------- Add Expense ----------
-function AddExpense({ categories, tags, onSubmit }) {
+function AddExpense({ categories, tags, onSubmit, isMobile }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
   const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()] });
   const [submitting, setSubmitting] = useState(false);
@@ -220,10 +259,10 @@ function AddExpense({ categories, tags, onSubmit }) {
   };
 
   return (
-    <Card style={{ maxWidth: 660 }}>
+    <Card style={{ maxWidth: 660, padding: isMobile ? 16 : 20 }}>
       <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           <Field label="Date"><input type="date" value={form.date} onChange={set("date")} required style={inputStyle} /></Field>
           <Field label="Category">
             <select value={form.category} onChange={set("category")} required style={inputStyle}>
@@ -234,31 +273,69 @@ function AddExpense({ categories, tags, onSubmit }) {
 
         <Field label="Items">
           <datalist id="tag-suggestions">{tags.map((t) => <option key={t.id} value={t.name} />)}</datalist>
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, fontSize: 11, color: "var(--ink-soft)", padding: "0 2px" }}>
-              <span>Item / tag</span><span>Qty</span><span>Unit price</span><span>Subtotal</span><span></span>
-            </div>
-            {form.items.map((it) => {
-              const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
-              return (
-                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, alignItems: "center" }}>
-                  <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
-                    placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
-                  <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
-                    style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                  <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
-                    placeholder="0" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: "var(--ink-soft)", textAlign: "right", paddingRight: 4 }}>
-                    {subtotal > 0 ? fmtNPR(subtotal) : "—"}
+
+          {isMobile ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              {form.items.map((it) => {
+                const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+                return (
+                  <div key={it.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 8, background: "var(--paper)" }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
+                        placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, flex: 1, fontSize: 14 }} />
+                      <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
+                        style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
+                          color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 22, lineHeight: 1, padding: "0 4px" }}>×</button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Qty</div>
+                        <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
+                          style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Unit price</div>
+                        <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
+                          placeholder="0" style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Subtotal</div>
+                        <div style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: "var(--ink-soft)" }}>
+                          {subtotal > 0 ? fmtNPR(subtotal) : "—"}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
-                    style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
-                      color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 18, lineHeight: 1 }}>×</button>
-                </div>
-              );
-            })}
-          </div>
-          <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start" }}>+ Add item</button>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, fontSize: 11, color: "var(--ink-soft)", padding: "0 2px" }}>
+                <span>Item / tag</span><span>Qty</span><span>Unit price</span><span>Subtotal</span><span></span>
+              </div>
+              {form.items.map((it) => {
+                const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+                return (
+                  <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, alignItems: "center" }}>
+                    <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
+                      placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
+                    <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
+                      style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
+                      placeholder="0" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: "var(--ink-soft)", textAlign: "right", paddingRight: 4 }}>
+                      {subtotal > 0 ? fmtNPR(subtotal) : "—"}
+                    </div>
+                    <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
+                      style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
+                        color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 18, lineHeight: 1 }}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
@@ -266,7 +343,7 @@ function AddExpense({ categories, tags, onSubmit }) {
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 600 }}>{fmtNPR(total)}</span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           <Field label="Payment mode">
             <select value={form.paymentMode} onChange={set("paymentMode")} style={inputStyle}>
               {PAYMENT_MODES.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -282,8 +359,8 @@ function AddExpense({ categories, tags, onSubmit }) {
         )}
 
         <button type="submit" disabled={!canSubmit || submitting} style={{
-          marginTop: 4, padding: "11px 18px", borderRadius: 8, border: "none",
-          background: (!canSubmit || submitting) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14,
+          marginTop: 4, padding: isMobile ? "14px 18px" : "11px 18px", borderRadius: 8, border: "none",
+          background: (!canSubmit || submitting) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
           cursor: (!canSubmit || submitting) ? "not-allowed" : "pointer",
         }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
       </form>
@@ -659,6 +736,7 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
 
 // ---------- Main App ----------
 function MainApp({ user }) {
+  const isMobile = useIsMobile();
   const [staffMap, setStaffMap] = useState(null);
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
@@ -828,37 +906,46 @@ function MainApp({ user }) {
 
   const sortedCategories = [...categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  const tabs = [
-    { id: "add", label: "Add Expense" },
-    { id: "mine", label: "My Expenses" },
-    { id: "analysis", label: "My Analysis" },
-    ...(isAdmin ? [{ id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }] : []),
-  ];
+  const primaryTabs = isAdmin
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }];
+  const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
+  const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
-      <div style={{ padding: "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
+      <div style={{ padding: isMobile ? "16px 16px 14px" : "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
         <div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
-          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 26, marginTop: 2 }}>Expense Ledger</div>
+          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>Expense Ledger</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isAdmin ? " · Admin" : ""}</span>
-          <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+          {isAdmin ? (
+            <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+          ) : (
+            <MoreMenu items={[
+              ...moreTabs.map((t) => ({ label: t.label, onClick: () => setTab(t.id) })),
+              { label: "Sign out", danger: true, onClick: () => auth.signOut() },
+            ]} />
+          )}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 2, padding: "0 28px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
-        {tabs.map((it) => (
+      <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
+        {primaryTabs.map((it) => (
           <button key={it.id} onClick={() => setTab(it.id)} style={{
-            padding: "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600,
+            padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600,
             color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
           }}>{it.label}</button>
         ))}
       </div>
 
-      <div style={{ padding: "20px 28px" }}>
-        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} />}
+      <div style={{ padding: isMobile ? "16px 16px" : "20px 28px" }}>
+        {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
+        )}
+        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} />}
         {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} />}
         {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
         {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={sortedCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} />}
