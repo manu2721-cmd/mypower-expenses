@@ -361,8 +361,56 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport }) {
   );
 }
 
+// ---------- My Analysis (available to every staff member, own data only) ----------
+function MyAnalysis({ expenses }) {
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [view, setView] = useState("category");
+
+  const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate)), [expenses, fromDate, toDate]);
+
+  const byCategory = useMemo(() => {
+    const m = {}; filtered.forEach((e) => { m[e.category] = (m[e.category] || 0) + e.amount; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byTag = useMemo(() => {
+    const m = {};
+    filtered.forEach((e) => (e.items || []).forEach((it) => { const amt = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0); m[it.tag] = (m[it.tag] || 0) + amt; }));
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byMonth = useMemo(() => {
+    const m = {}; filtered.forEach((e) => { const k = monthKey(e.date); m[k] = (m[k] || 0) + e.amount; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [filtered]);
+
+  const total = filtered.reduce((s, e) => s + e.amount, 0);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <StatCard label="Total in view" value={total} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>From</span>
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>To</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        {(fromDate || toDate) && <button onClick={() => { setFromDate(""); setToDate(""); }} style={{ ...ghostBtn, padding: "7px 10px", fontSize: 11.5 }}>Clear</button>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {[["category", "By Category"], ["tag", "By Tag"], ["trend", "Monthly Trend"]].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{ ...ghostBtn, background: view === id ? "var(--ink)" : "var(--card)", color: view === id ? "var(--paper)" : "var(--ink)" }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {view === "category" && <Card><SimpleBarChart data={byCategory} /></Card>}
+      {view === "tag" && <Card><SimpleBarChart data={byTag} /></Card>}
+      {view === "trend" && <Card><SimpleTrendChart data={byMonth} /></Card>}
+    </div>
+  );
+}
+
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport }) {
+function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -475,6 +523,8 @@ function Overview({ expenses, staffMap, categories, onReview, onExport }) {
                   </>
                 )}
                 {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
+                <button onClick={() => { if (window.confirm(`Permanently delete this ${fmtNPR(e.amount)} transaction? This cannot be undone.`)) onDelete(e.staffUid, e.id); }}
+                  style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Delete</button>
               </div>
             </div>
           ))}
@@ -489,7 +539,35 @@ function Overview({ expenses, staffMap, categories, onReview, onExport }) {
 }
 
 // ---------- Manage (admin only) ----------
-function Manage({ categories, staffMap, myUid, onAddCategory, onRemoveCategory, onCreateStaff, onToggleAdmin, onToggleActive }) {
+function EditableRow({ name, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+
+  const save = () => {
+    if (draft.trim() && draft.trim() !== name) onRename(draft.trim());
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
+      {editing ? (
+        <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setDraft(name); setEditing(false); } }}
+          onBlur={save} style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1 }} />
+      ) : (
+        <span style={{ flex: 1 }}>{name}</span>
+      )}
+      <div style={{ display: "flex", gap: 4 }}>
+        {onMoveUp && <button onClick={onMoveUp} disabled={!canMoveUp} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveUp ? 1 : 0.35 }}>↑</button>}
+        {onMoveDown && <button onClick={onMoveDown} disabled={!canMoveDown} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveDown ? 1 : 0.35 }}>↓</button>}
+        {!editing && <button onClick={() => { setDraft(name); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>}
+        <button onClick={onRemove} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+      </div>
+    </div>
+  );
+}
+
+function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onRemoveTag, onRenameTag, onCreateStaff, onToggleAdmin, onToggleActive }) {
   const [newCat, setNewCat] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
@@ -515,17 +593,33 @@ function Manage({ categories, staffMap, myUid, onAddCategory, onRemoveCategory, 
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Categories</div>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Categories</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Use ↑/↓ to reorder — this changes the order shown everywhere. Categories in use by a transaction can't be deleted, only renamed (renaming updates existing transactions too).</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inputStyle, width: "auto", flex: 1 }}
             onKeyDown={(e) => { if (e.key === "Enter") { onAddCategory(newCat); setNewCat(""); } }} />
           <button onClick={() => { onAddCategory(newCat); setNewCat(""); }} style={ghostBtn}>Add</button>
         </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          {categories.map((c) => (
-            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
-              {c.name}<button onClick={() => onRemoveCategory(c.id)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Remove</button>
-            </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {categories.map((c, i) => (
+            <EditableRow key={c.id} name={c.name}
+              onRename={(newName) => onRenameCategory(c.id, c.name, newName)}
+              onRemove={() => onRemoveCategory(c.id, c.name)}
+              onMoveUp={() => onMoveCategory(c.id, "up")} onMoveDown={() => onMoveCategory(c.id, "down")}
+              canMoveUp={i > 0} canMoveDown={i < categories.length - 1} />
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tags</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Tags are added automatically when staff type a new item on a claim. Tags in use can't be deleted, only renamed.</div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {tags.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No tags yet — they'll appear here once staff start logging items.</div>}
+          {tags.map((t) => (
+            <EditableRow key={t.id} name={t.name}
+              onRename={(newName) => onRenameTag(t.id, t.name, newName)}
+              onRemove={() => onRemoveTag(t.id, t.name)} />
           ))}
         </div>
       </Card>
@@ -636,8 +730,72 @@ function MainApp({ user }) {
     flash("Marked " + status.toLowerCase() + ".");
   };
 
-  const addCategory = (name) => { if (name.trim()) db.ref("categories").push({ name: name.trim() }); };
-  const removeCategory = (id) => db.ref("categories/" + id).remove();
+  const addCategory = (name) => {
+    if (!name.trim()) return;
+    const maxOrder = categories.reduce((m, c) => Math.max(m, c.order ?? 0), -1);
+    db.ref("categories").push({ name: name.trim(), order: maxOrder + 1 });
+  };
+
+  const categoryUsageCount = (name) => allExpenses.filter((e) => e.category === name).length;
+  const tagUsageCount = (name) => allExpenses.filter((e) => (e.items || []).some((it) => it.tag === name)).length;
+
+  const removeCategory = (id, name) => {
+    const count = categoryUsageCount(name);
+    if (count > 0) { flash(`Can't delete — ${count} transaction${count === 1 ? "" : "s"} use "${name}".`); return; }
+    db.ref("categories/" + id).remove();
+  };
+
+  const renameCategory = async (id, oldName, newName) => {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    await db.ref("categories/" + id).update({ name: clean });
+    const affected = allExpenses.filter((e) => e.category === oldName);
+    if (affected.length > 0) {
+      const updates = {};
+      affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+      await db.ref().update(updates);
+    }
+    flash(`Renamed to "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
+  };
+
+  const moveCategory = async (id, direction) => {
+    const sorted = [...categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const idx = sorted.findIndex((c) => c.id === id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) return;
+    const a = sorted[idx], b = sorted[swapIdx];
+    await db.ref().update({
+      [`categories/${a.id}/order`]: b.order ?? swapIdx,
+      [`categories/${b.id}/order`]: a.order ?? idx,
+    });
+  };
+
+  const removeTag = (id, name) => {
+    const count = tagUsageCount(name);
+    if (count > 0) { flash(`Can't delete — ${count} transaction${count === 1 ? "" : "s"} use "${name}".`); return; }
+    db.ref("tags/" + id).remove();
+  };
+
+  const renameTag = async (id, oldName, newName) => {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    await db.ref("tags/" + id).update({ name: clean });
+    const affected = allExpenses.filter((e) => (e.items || []).some((it) => it.tag === oldName));
+    if (affected.length > 0) {
+      const updates = {};
+      affected.forEach((e) => {
+        const newItems = e.items.map((it) => (it.tag === oldName ? { ...it, tag: clean } : it));
+        updates[`expenses/${e.staffUid}/${e.id}/items`] = newItems;
+      });
+      await db.ref().update(updates);
+    }
+    flash(`Renamed to "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
+  };
+
+  const adminDeleteExpense = async (staffUid, expenseId) => {
+    await db.ref("expenses/" + staffUid + "/" + expenseId).remove();
+    flash("Transaction deleted.");
+  };
 
   const createStaff = async (email, password, displayName) => {
     const secondary = firebase.initializeApp(firebaseConfig, "secondary-" + Date.now());
@@ -668,9 +826,12 @@ function MainApp({ user }) {
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
 
+  const sortedCategories = [...categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   const tabs = [
     { id: "add", label: "Add Expense" },
     { id: "mine", label: "My Expenses" },
+    { id: "analysis", label: "My Analysis" },
     ...(isAdmin ? [{ id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }] : []),
   ];
 
@@ -697,10 +858,18 @@ function MainApp({ user }) {
       </div>
 
       <div style={{ padding: "20px 28px" }}>
-        {tab === "add" && <AddExpense categories={categories} tags={tags} onSubmit={addExpense} />}
+        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} />}
         {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} />}
-        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={categories} onReview={review} onExport={exportCSV} />}
-        {tab === "manage" && isAdmin && <Manage categories={categories} staffMap={staffMap} myUid={user.uid} onAddCategory={addCategory} onRemoveCategory={removeCategory} onCreateStaff={createStaff} onToggleAdmin={toggleAdmin} onToggleActive={toggleActive} />}
+        {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
+        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={sortedCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} />}
+        {tab === "manage" && isAdmin && (
+          <Manage
+            categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
+            onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
+            onRemoveTag={removeTag} onRenameTag={renameTag}
+            onCreateStaff={createStaff} onToggleAdmin={toggleAdmin} onToggleActive={toggleActive}
+          />
+        )}
       </div>
 
       {toast && (
