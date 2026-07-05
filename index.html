@@ -36,7 +36,7 @@
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 // ---------- Firebase setup ----------
 const firebaseConfig = {
@@ -295,6 +295,65 @@ function NoProfileScreen({ email }) {
 }
 
 // ---------- Add Expense ----------
+// Search-first tag picker: type to filter existing tags, tap one to use it,
+// or add a brand-new tag if nothing matches. Replaces the old native <datalist>.
+function TagPicker({ value, onChange, tags, placeholder, fieldStyle }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const q = (value || "").trim().toLowerCase();
+  const matches = q
+    ? tags.filter((t) => t.name.toLowerCase().includes(q)).sort((a, b) => a.name.toLowerCase().indexOf(q) - b.name.toLowerCase().indexOf(q))
+    : tags;
+  const exactMatch = tags.some((t) => t.name.toLowerCase() === q);
+  const showList = open && (matches.length > 0 || (q && !exactMatch));
+
+  const pick = (name) => { onChange(name); setOpen(false); };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        autoComplete="off"
+        style={fieldStyle}
+      />
+      {showList && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 30,
+          background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8,
+          maxHeight: 200, overflowY: "auto", boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
+        }}>
+          {matches.slice(0, 30).map((t) => (
+            <div key={t.id} onMouseDown={() => pick(t.name)}
+              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--paper-dark)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+              {t.name}
+            </div>
+          ))}
+          {q && !exactMatch && (
+            <div onMouseDown={() => pick(value.trim())}
+              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", color: "var(--ink-soft)", borderTop: matches.length ? "1px solid var(--line)" : "none" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--paper-dark)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+              + Add "{value.trim()}" as a new tag
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
   const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
@@ -359,8 +418,6 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
         </div>
 
         <Field label="Items">
-          <datalist id="tag-suggestions">{tags.map((t) => <option key={t.id} value={t.name} />)}</datalist>
-
           {isMobile ? (
             <div style={{ display: "grid", gap: 10 }}>
               {form.items.map((it) => {
@@ -368,8 +425,10 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
                 return (
                   <div key={it.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 8, background: "var(--paper)" }}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
-                        placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, flex: 1, fontSize: 14 }} />
+                      <div style={{ flex: 1 }}>
+                        <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
+                          placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, fontSize: 14 }} />
+                      </div>
                       <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
                         style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
                           color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 22, lineHeight: 1, padding: "0 4px" }}>×</button>
@@ -405,8 +464,8 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
                 const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
                 return (
                   <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, alignItems: "center" }}>
-                    <input list="tag-suggestions" value={it.tag} onChange={(e) => updateItem(it.id, "tag", e.target.value)}
-                      placeholder="Tea, Taxi, Pen…" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
+                    <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
+                      placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
                     <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
                       style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
                     <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
@@ -737,41 +796,107 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
 }
 
 // ---------- Manage (admin only) ----------
-function EditableRow({ name, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown }) {
+function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, mergeOptions, onMerge }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
+  const [merging, setMerging] = useState(false);
+  const [target, setTarget] = useState("");
 
   const save = () => {
     if (draft.trim() && draft.trim() !== name) onRename(draft.trim());
     setEditing(false);
   };
 
+  const confirmMerge = () => {
+    if (!target) return;
+    onMerge(target);
+    setMerging(false); setTarget("");
+  };
+
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)", gap: 8 }}>
-      {editing ? (
-        <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setDraft(name); setEditing(false); } }}
-          onBlur={save} style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1 }} />
-      ) : (
-        <span style={{ flex: 1 }}>{name}</span>
+    <div style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8 }}>
+        {editing ? (
+          <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setDraft(name); setEditing(false); } }}
+            onBlur={save} style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1 }} />
+        ) : (
+          <span style={{ flex: 1 }}>{name}{meta && <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{meta}</span>}</span>
+        )}
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {onMoveUp && <button onClick={onMoveUp} disabled={!canMoveUp} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveUp ? 1 : 0.35 }}>↑</button>}
+          {onMoveDown && <button onClick={onMoveDown} disabled={!canMoveDown} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveDown ? 1 : 0.35 }}>↓</button>}
+          {!editing && <button onClick={() => { setDraft(name); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>}
+          {mergeOptions && mergeOptions.length > 0 && <button onClick={() => setMerging((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Merge</button>}
+          <button onClick={onRemove} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+        </div>
+      </div>
+      {merging && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Merge "{name}" into:</span>
+          <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...smallSelect, flex: 1, minWidth: 120 }}>
+            <option value="">Choose…</option>
+            {mergeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <button onClick={confirmMerge} disabled={!target} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Confirm</button>
+          <button onClick={() => setMerging(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Cancel</button>
+        </div>
       )}
-      <div style={{ display: "flex", gap: 4 }}>
-        {onMoveUp && <button onClick={onMoveUp} disabled={!canMoveUp} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveUp ? 1 : 0.35 }}>↑</button>}
-        {onMoveDown && <button onClick={onMoveDown} disabled={!canMoveDown} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveDown ? 1 : 0.35 }}>↓</button>}
-        {!editing && <button onClick={() => { setDraft(name); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>}
-        <button onClick={onRemove} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+    </div>
+  );
+}
+
+function StaffRow({ s, myUid, onToggleAdmin, onToggleActive }) {
+  const [copied, setCopied] = useState("");
+  const copy = (text, label) => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label);
+      setTimeout(() => setCopied(""), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+      <div>
+        <div>{s.name} {s.uid === myUid && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+          {s.email ? (
+            <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+              style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+              {copied === "email" ? "Copied!" : s.email}
+            </span>
+          ) : (
+            <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
+          )}
+          <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
+            style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+            {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="checkbox" checked={!!s.isAdmin} onChange={(e) => onToggleAdmin(s.uid, e.target.checked)} disabled={s.uid === myUid} /> Admin
+        </label>
+        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(s.uid, e.target.checked)} disabled={s.uid === myUid} /> Active
+        </label>
       </div>
     </div>
   );
 }
 
-function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onRemoveTag, onRenameTag, onCreateStaff, onToggleAdmin, onToggleActive }) {
+function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onToggleAdmin, onToggleActive }) {
   const [newCat, setNewCat] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [catSearch, setCatSearch] = useState("");
+  const [tagSearch, setTagSearch] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
 
   const createStaff = async () => {
     if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
@@ -788,36 +913,69 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
     setBusy(false);
   };
 
+  const catQ = catSearch.trim().toLowerCase();
+  const filteredCategories = categories.filter((c) => c.name.toLowerCase().includes(catQ));
+
+  const tagQ = tagSearch.trim().toLowerCase();
+  const tagsWithCount = tags.map((t) => ({ ...t, count: tagUsageCount(t.name) }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const filteredTags = tagsWithCount.filter((t) => t.name.toLowerCase().includes(tagQ));
+
+  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
+  const staffQ = staffSearch.trim().toLowerCase();
+  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
+  const activeStaff = filteredStaff.filter((s) => s.active !== false);
+  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <Card>
         <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Categories</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Use ↑/↓ to reorder — this changes the order shown everywhere. Categories in use by a transaction can't be deleted, only renamed (renaming updates existing transactions too).</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Use ↑/↓ to reorder — this changes the order shown everywhere. Categories in use by a transaction can't be deleted, only renamed or merged (both update existing transactions).</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inputStyle, width: "auto", flex: 1 }}
             onKeyDown={(e) => { if (e.key === "Enter") { onAddCategory(newCat); setNewCat(""); } }} />
           <button onClick={() => { onAddCategory(newCat); setNewCat(""); }} style={ghostBtn}>Add</button>
         </div>
+        {categories.length > 6 && (
+          <input value={catSearch} onChange={(e) => setCatSearch(e.target.value)} placeholder="Search categories…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
+        )}
         <div style={{ display: "grid", gap: 2 }}>
-          {categories.map((c, i) => (
-            <EditableRow key={c.id} name={c.name}
-              onRename={(newName) => onRenameCategory(c.id, c.name, newName)}
-              onRemove={() => onRemoveCategory(c.id, c.name)}
-              onMoveUp={() => onMoveCategory(c.id, "up")} onMoveDown={() => onMoveCategory(c.id, "down")}
-              canMoveUp={i > 0} canMoveDown={i < categories.length - 1} />
-          ))}
+          {categories.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No categories yet — add one above.</div>}
+          {categories.length > 0 && filteredCategories.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No categories match "{catSearch}".</div>}
+          {filteredCategories.map((c) => {
+            const i = categories.findIndex((x) => x.id === c.id);
+            const count = categoryUsageCount(c.name);
+            return (
+              <EditableRow key={c.id} name={c.name}
+                meta={`· ${count} use${count === 1 ? "" : "s"}`}
+                onRename={(newName) => onRenameCategory(c.id, c.name, newName)}
+                onRemove={() => onRemoveCategory(c.id, c.name)}
+                onMoveUp={() => onMoveCategory(c.id, "up")} onMoveDown={() => onMoveCategory(c.id, "down")}
+                canMoveUp={i > 0} canMoveDown={i < categories.length - 1}
+                mergeOptions={categories.filter((x) => x.id !== c.id).map((x) => x.name)}
+                onMerge={(target) => onMergeCategory(c.id, c.name, target)} />
+            );
+          })}
         </div>
       </Card>
 
       <Card>
         <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tags</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Tags are added automatically when staff type a new item on a claim. Tags in use can't be deleted, only renamed.</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Tags are added automatically when staff type a new item on a claim. Sorted by how often they're used — rarely-used ones near the bottom are worth a look for typos, and can be merged into an existing tag.</div>
+        {tags.length > 6 && (
+          <input value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
+        )}
         <div style={{ display: "grid", gap: 2 }}>
           {tags.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No tags yet — they'll appear here once staff start logging items.</div>}
-          {tags.map((t) => (
+          {tags.length > 0 && filteredTags.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No tags match "{tagSearch}".</div>}
+          {filteredTags.map((t) => (
             <EditableRow key={t.id} name={t.name}
+              meta={`· ${t.count} use${t.count === 1 ? "" : "s"}`}
               onRename={(newName) => onRenameTag(t.id, t.name, newName)}
-              onRemove={() => onRemoveTag(t.id, t.name)} />
+              onRemove={() => onRemoveTag(t.id, t.name)}
+              mergeOptions={tags.filter((x) => x.id !== t.id).map((x) => x.name)}
+              onMerge={(target) => onMergeTag(t.id, t.name, target)} />
           ))}
         </div>
       </Card>
@@ -834,22 +992,24 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
       </Card>
 
       <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Staff & permissions</div>
-        <div style={{ display: "grid", gap: 6 }}>
-          {Object.entries(staffMap).map(([uid, s]) => (
-            <div key={uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
-              <div>{s.name} {uid === myUid && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                  <input type="checkbox" checked={!!s.isAdmin} onChange={(e) => onToggleAdmin(uid, e.target.checked)} disabled={uid === myUid} /> Admin
-                </label>
-                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                  <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(uid, e.target.checked)} disabled={uid === myUid} /> Active
-                </label>
-              </div>
-            </div>
-          ))}
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Staff & permissions</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Login email and user ID are shown under each name — tap either to copy. Firebase never reveals a saved password to anyone, admin included; if someone's locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.</div>
+        {staffEntries.length > 6 && (
+          <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
+        )}
+        <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
+        <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
+          {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} onToggleAdmin={onToggleAdmin} onToggleActive={onToggleActive} />)}
         </div>
+        {inactiveStaff.length > 0 && (
+          <div>
+            <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
+              {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
+            </button>
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} onToggleAdmin={onToggleAdmin} onToggleActive={onToggleActive} />)}</div>}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -999,6 +1159,35 @@ function MainApp({ user }) {
     flash(`Renamed to "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
   };
 
+  const mergeCategory = async (id, fromName, toName) => {
+    const clean = toName.trim();
+    if (!clean || clean === fromName) return;
+    const affected = allExpenses.filter((e) => e.category === fromName);
+    if (affected.length > 0) {
+      const updates = {};
+      affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+      await db.ref().update(updates);
+    }
+    await db.ref("categories/" + id).remove();
+    flash(`Merged "${fromName}" into "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
+  };
+
+  const mergeTag = async (id, fromName, toName) => {
+    const clean = toName.trim();
+    if (!clean || clean === fromName) return;
+    const affected = allExpenses.filter((e) => (e.items || []).some((it) => it.tag === fromName));
+    if (affected.length > 0) {
+      const updates = {};
+      affected.forEach((e) => {
+        const newItems = e.items.map((it) => (it.tag === fromName ? { ...it, tag: clean } : it));
+        updates[`expenses/${e.staffUid}/${e.id}/items`] = newItems;
+      });
+      await db.ref().update(updates);
+    }
+    await db.ref("tags/" + id).remove();
+    flash(`Merged "${fromName}" into "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
+  };
+
   const adminDeleteExpense = async (staffUid, expenseId) => {
     await db.ref("expenses/" + staffUid + "/" + expenseId).remove();
     flash("Transaction deleted.");
@@ -1009,7 +1198,7 @@ function MainApp({ user }) {
     try {
       const cred = await secondary.auth().createUserWithEmailAndPassword(email, password);
       const uid = cred.user.uid;
-      await db.ref("staff/" + uid).set({ name: displayName, isAdmin: false, active: true });
+      await db.ref("staff/" + uid).set({ name: displayName, email, isAdmin: false, active: true });
       await secondary.auth().signOut();
     } finally {
       await secondary.delete();
@@ -1090,7 +1279,8 @@ function MainApp({ user }) {
           <Manage
             categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
             onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
-            onRemoveTag={removeTag} onRenameTag={renameTag}
+            onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
+            onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
             onCreateStaff={createStaff} onToggleAdmin={toggleAdmin} onToggleActive={toggleActive}
           />
         )}
