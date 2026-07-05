@@ -10,6 +10,9 @@
 <script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.15.0/firebase-database-compat.js"></script>
 
+<!-- Nepali (Bikram Sambat) date conversion -->
+<script src="https://cdn.jsdelivr.net/npm/nepali-date-converter/dist/nepali-date-converter.umd.js"></script>
+
 <!-- React + Babel (in-browser JSX, no build step) -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -70,6 +73,50 @@ function itemsTotal(items) {
 }
 function objToArr(obj) {
   return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
+}
+
+// ---------- Date formatting (AD / Bikram Sambat) ----------
+function fmtDateAD(isoStr) {
+  if (!isoStr) return "";
+  const d = new Date(isoStr + "T00:00:00");
+  if (isNaN(d)) return isoStr;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+function fmtDateBS(isoStr) {
+  if (!isoStr) return "";
+  try {
+    if (typeof NepaliDate === "undefined") return fmtDateAD(isoStr) + " (BS unavailable)";
+    const jsDate = new Date(isoStr + "T00:00:00");
+    if (isNaN(jsDate)) return isoStr;
+    const nd = new NepaliDate(jsDate);
+    return nd.format("DD MMMM YYYY");
+  } catch (e) {
+    return fmtDateAD(isoStr) + " (BS unavailable)";
+  }
+}
+function fmtDate(isoStr, format) { return format === "BS" ? fmtDateBS(isoStr) : fmtDateAD(isoStr); }
+
+// ---------- Image compression (receipt photos, stored inline — no paid Storage plan needed) ----------
+function resizeImageFile(file, maxWidth = 900, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("Could not read image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function useIsMobile() {
@@ -230,10 +277,12 @@ function NoProfileScreen({ email }) {
 }
 
 // ---------- Add Expense ----------
-function AddExpense({ categories, tags, onSubmit, isMobile }) {
+function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
-  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()] });
+  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
   const [submitting, setSubmitting] = useState(false);
+  const [compressing, setCompressing] = useState(false);
+  const [fileError, setFileError] = useState("");
 
   useEffect(() => {
     if (!form.category && categories[0]) setForm((f) => ({ ...f, category: categories[0].name }));
@@ -243,6 +292,21 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
   const updateItem = (id, field, value) => setForm((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? { ...it, [field]: value } : it)) }));
   const addItemRow = () => setForm((f) => ({ ...f, items: [...f.items, emptyItem()] }));
   const removeItemRow = (id) => setForm((f) => ({ ...f, items: f.items.length > 1 ? f.items.filter((it) => it.id !== id) : f.items }));
+
+  const handleReceiptFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setFileError(""); setCompressing(true);
+    try {
+      const dataUrl = await resizeImageFile(file);
+      setForm((f) => ({ ...f, receipt: dataUrl }));
+    } catch (err) {
+      setFileError("Could not process that photo — try a different one.");
+    }
+    setCompressing(false);
+    e.target.value = "";
+  };
+  const removeReceipt = () => setForm((f) => ({ ...f, receipt: null }));
 
   const total = itemsTotal(form.items);
   const hasValidRow = form.items.some((it) => it.tag.trim() && Number(it.qty) > 0 && Number(it.unitPrice) > 0);
@@ -254,7 +318,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
     if (!canSubmit) return;
     setSubmitting(true);
     await onSubmit(form);
-    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()] });
+    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
     setSubmitting(false);
   };
 
@@ -263,7 +327,12 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
       <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
-          <Field label="Date"><input type="date" value={form.date} onChange={set("date")} required style={inputStyle} /></Field>
+          <Field label="Date">
+            <input type="date" value={form.date} onChange={set("date")} required style={inputStyle} />
+            {dateFormat === "BS" && form.date && (
+              <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>≈ {fmtDateBS(form.date)}</div>
+            )}
+          </Field>
           <Field label="Category">
             <select value={form.category} onChange={set("category")} required style={inputStyle}>
               {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -338,6 +407,22 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
           <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
+        <Field label="Receipt / bill photo (optional)">
+          {!form.receipt ? (
+            <div>
+              <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
+                style={{ fontSize: 13 }} />
+              {compressing && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>Compressing photo…</div>}
+              {fileError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 4 }}>{fileError}</div>}
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <img src={form.receipt} alt="Receipt preview" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+              <button type="button" onClick={removeReceipt} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 12 }}>Remove photo</button>
+            </div>
+          )}
+        </Field>
+
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
           <span style={{ fontSize: 13, color: "var(--ink-soft)", fontWeight: 600 }}>Total</span>
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 600 }}>{fmtNPR(total)}</span>
@@ -358,10 +443,10 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
           <div style={{ fontSize: 12.5, color: "var(--pending)", background: "#FFF3DE", border: "1px solid var(--pending)", borderRadius: 8, padding: "8px 12px" }}>{blockReason}</div>
         )}
 
-        <button type="submit" disabled={!canSubmit || submitting} style={{
+        <button type="submit" disabled={!canSubmit || submitting || compressing} style={{
           marginTop: 4, padding: isMobile ? "14px 18px" : "11px 18px", borderRadius: 8, border: "none",
-          background: (!canSubmit || submitting) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
-          cursor: (!canSubmit || submitting) ? "not-allowed" : "pointer",
+          background: (!canSubmit || submitting || compressing) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
+          cursor: (!canSubmit || submitting || compressing) ? "not-allowed" : "pointer",
         }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
       </form>
     </Card>
@@ -369,7 +454,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile }) {
 }
 
 // ---------- My Expenses ----------
-function MyExpenses({ myName, expenses, onWithdraw, onExport }) {
+function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
@@ -411,19 +496,26 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport }) {
         <div style={{ display: "grid", gap: 10 }}>
           {filtered.map((e) => (
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.category}</div>
-                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{e.date} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
-                {e.items && e.items.length > 0 && (
-                  <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
-                    {e.items.map((it, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
-                      </div>
-                    ))}
-                  </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                {e.receipt && (
+                  <a href={e.receipt} target="_blank" rel="noopener noreferrer">
+                    <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+                  </a>
                 )}
-                {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.category}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
+                  {e.items && e.items.length > 0 && (
+                    <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+                      {e.items.map((it, i) => (
+                        <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
+                          {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
+                </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
@@ -487,7 +579,7 @@ function MyAnalysis({ expenses }) {
 }
 
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete }) {
+function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -575,18 +667,25 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
           {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No expenses match these filters.</Card>}
           {filtered.map((e) => (
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "13px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.category}</span></div>
-                <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{e.date} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
-                {e.items && e.items.length > 0 && (
-                  <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
-                    {e.items.map((it, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
-                      </div>
-                    ))}
-                  </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                {e.receipt && (
+                  <a href={e.receipt} target="_blank" rel="noopener noreferrer">
+                    <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+                  </a>
                 )}
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.category}</span></div>
+                  <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
+                  {e.items && e.items.length > 0 && (
+                    <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
+                      {e.items.map((it, i) => (
+                        <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
+                          {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
@@ -737,6 +836,12 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
 // ---------- Main App ----------
 function MainApp({ user }) {
   const isMobile = useIsMobile();
+  const [dateFormat, setDateFormat] = useState(() => { try { return localStorage.getItem("mp-date-format") || "AD"; } catch (e) { return "AD"; } });
+  const toggleDateFormat = () => setDateFormat((f) => {
+    const next = f === "AD" ? "BS" : "AD";
+    try { localStorage.setItem("mp-date-format", next); } catch (e) {}
+    return next;
+  });
   const [staffMap, setStaffMap] = useState(null);
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
@@ -794,7 +899,9 @@ function MainApp({ user }) {
     const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
     const amount = itemsTotal(cleanItems);
     const newRef = db.ref("expenses/" + user.uid).push();
-    await newRef.set({ staffName: me.name, date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" });
+    const record = { staffName: me.name, date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
+    if (form.receipt) record.receipt = form.receipt;
+    await newRef.set(record);
     const existingTagNames = tags.map((t) => t.name);
     const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
     newTagNames.forEach((t) => db.ref("tags").push({ name: t }));
@@ -920,6 +1027,14 @@ function MainApp({ user }) {
           <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>Expense Ledger</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+            {["AD", "BS"].map((f) => (
+              <button key={f} onClick={() => f !== dateFormat && toggleDateFormat()} style={{
+                padding: "6px 10px", fontSize: 11.5, border: "none", cursor: "pointer",
+                background: dateFormat === f ? "var(--ink)" : "var(--card)", color: dateFormat === f ? "var(--paper)" : "var(--ink)",
+              }}>{f}</button>
+            ))}
+          </div>
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isAdmin ? " · Admin" : ""}</span>
           {isAdmin ? (
             <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
@@ -945,10 +1060,10 @@ function MainApp({ user }) {
         {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
         )}
-        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} />}
-        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} />}
+        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} dateFormat={dateFormat} />}
+        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} dateFormat={dateFormat} />}
         {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
-        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={sortedCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} />}
+        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={sortedCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />}
         {tab === "manage" && isAdmin && (
           <Manage
             categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
