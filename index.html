@@ -190,6 +190,38 @@ function StatusBadge({ status }) {
 function Card({ children, style }) {
   return <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: 20, ...style }}>{children}</div>;
 }
+
+// Collapsible section card — remembers open/closed per section in localStorage,
+// so it stays as the admin left it even after a page refresh.
+function CollapsibleCard({ storageKey, title, subtitle, children }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem("mp-manage-" + storageKey);
+      return saved === null ? true : saved === "1";
+    } catch (e) { return true; }
+  });
+
+  const toggle = () => setOpen((o) => {
+    const next = !o;
+    try { localStorage.setItem("mp-manage-" + storageKey, next ? "1" : "0"); } catch (e) {}
+    return next;
+  });
+
+  return (
+    <Card>
+      <div onClick={toggle} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>{title}</div>
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>{open ? "▾ Collapse" : "▸ Expand"}</span>
+      </div>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {subtitle && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12, marginTop: -4 }}>{subtitle}</div>}
+          {children}
+        </div>
+      )}
+    </Card>
+  );
+}
 const inputStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", fontSize: 14, color: "var(--ink)", width: "100%" };
 const smallSelect = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 13 };
 const ghostBtn = { padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" };
@@ -929,9 +961,8 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Categories</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Use ↑/↓ to reorder — this changes the order shown everywhere. Categories in use by a transaction can't be deleted, only renamed or merged (both update existing transactions).</div>
+      <CollapsibleCard storageKey="categories" title="Categories"
+        subtitle="Use ↑/↓ to reorder — this changes the order shown everywhere. Categories in use by a transaction can't be deleted, only renamed or merged (both update existing transactions).">
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inputStyle, width: "auto", flex: 1 }}
             onKeyDown={(e) => { if (e.key === "Enter") { onAddCategory(newCat); setNewCat(""); } }} />
@@ -958,11 +989,10 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
             );
           })}
         </div>
-      </Card>
+      </CollapsibleCard>
 
-      <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Tags</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Tags are added automatically when staff type a new item on a claim. Sorted by how often they're used — rarely-used ones near the bottom are worth a look for typos, and can be merged into an existing tag.</div>
+      <CollapsibleCard storageKey="tags" title="Tags"
+        subtitle="Tags are added automatically when staff type a new item on a claim. Sorted by how often they're used — rarely-used ones near the bottom are worth a look for typos, and can be merged into an existing tag.">
         {tags.length > 6 && (
           <input value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
@@ -978,10 +1008,9 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
               onMerge={(target) => onMergeTag(t.id, t.name, target)} />
           ))}
         </div>
-      </Card>
+      </CollapsibleCard>
 
-      <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Create a staff login</div>
+      <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
           <Field label="Email"><input value={newStaffEmail} onChange={(e) => setNewStaffEmail(e.target.value)} placeholder="name@mypower.com" style={inputStyle} /></Field>
@@ -989,11 +1018,10 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
           <button onClick={createStaff} disabled={busy} style={{ ...ghostBtn, height: 42 }}>{busy ? "Creating…" : "Create"}</button>
         </div>
         {msg && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 10 }}>{msg}</div>}
-      </Card>
+      </CollapsibleCard>
 
-      <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Staff & permissions</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>Login email and user ID are shown under each name — tap either to copy. Firebase never reveals a saved password to anyone, admin included; if someone's locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.</div>
+      <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
@@ -1010,7 +1038,7 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
             {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} onToggleAdmin={onToggleAdmin} onToggleActive={onToggleActive} />)}</div>}
           </div>
         )}
-      </Card>
+      </CollapsibleCard>
     </div>
   );
 }
