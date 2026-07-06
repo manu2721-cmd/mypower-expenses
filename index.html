@@ -246,8 +246,9 @@ const inputStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid v
 const smallSelect = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 13 };
 const ghostBtn = { padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" };
 
-function Field({ label, children }) {
-  return <label style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</label>;
+function Field({ label, children, plain }) {
+  const Tag = plain ? "div" : "label";
+  return <Tag style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</Tag>;
 }
 
 function StatCard({ label, value, accent }) {
@@ -456,9 +457,24 @@ function CategoryPicker({ value, onChange, categories, placeholder }) {
   );
 }
 
-function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
+function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
-  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+  const buildForm = () => {
+    if (editingExpense) {
+      return {
+        date: editingExpense.date || todayStr(),
+        category: editingExpense.category || categories[0]?.name || "",
+        paymentMode: editingExpense.paymentMode || PAYMENT_MODES[0],
+        note: editingExpense.note || "",
+        items: editingExpense.items && editingExpense.items.length > 0
+          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, qty: it.qty, unitPrice: it.unitPrice }))
+          : [emptyItem()],
+        receipt: editingExpense.receipt || null,
+      };
+    }
+    return { date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null };
+  };
+  const [form, setForm] = useState(buildForm);
   const [submitting, setSubmitting] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [fileError, setFileError] = useState("");
@@ -496,14 +512,23 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    await onSubmit(form);
-    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+    if (editingExpense) {
+      await onUpdate(editingExpense, form);
+    } else {
+      await onSubmit(form);
+      setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+    }
     setSubmitting(false);
   };
 
   return (
     <Card style={{ maxWidth: 660, padding: isMobile ? 16 : 20 }}>
-      <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600 }}>
+          {editingExpense ? (editingExpense.editKind === "own" ? "Edit & resubmit claim" : "Edit transaction") : "Log a new expense"}
+        </div>
+        {editingExpense && <button type="button" onClick={onCancelEdit} style={{ ...ghostBtn, fontSize: 12 }}>Cancel</button>}
+      </div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           <Field label="Date">
@@ -584,7 +609,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
           <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
-        <Field label="Receipt / bill photo (optional)">
+        <Field label="Receipt / bill photo (optional)" plain>
           {!form.receipt ? (
             <div>
               <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
@@ -624,17 +649,18 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
           marginTop: 4, padding: isMobile ? "14px 18px" : "11px 18px", borderRadius: 8, border: "none",
           background: (!canSubmit || submitting || compressing) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
           cursor: (!canSubmit || submitting || compressing) ? "not-allowed" : "pointer",
-        }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
+        }}>{submitting ? "Saving…" : editingExpense ? `Save changes — ${fmtNPR(total)}` : `Submit claim — ${fmtNPR(total)}`}</button>
       </form>
     </Card>
   );
 }
 
 // ---------- My Expenses ----------
-function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
+function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat }) {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [confirmWithdrawId, setConfirmWithdrawId] = useState(null);
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
     .sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, fromDate, toDate]);
 
@@ -693,12 +719,26 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
                     </div>
                   )}
                   {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
+                  {e.lastEditedBy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
                 <StatusBadge status={e.status} />
-                {e.status === "Pending" && <button onClick={() => onWithdraw(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>}
+                {(e.status === "Pending" || e.status === "Rejected") && confirmWithdrawId !== e.id && (
+                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>{e.status === "Rejected" ? "Edit & resubmit" : "Edit"}</button>
+                )}
+                {e.status === "Pending" && (
+                  confirmWithdrawId === e.id ? (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete this claim for good?</span>
+                      <button onClick={() => { onWithdraw(e.id); setConfirmWithdrawId(null); }} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, withdraw</button>
+                      <button onClick={() => setConfirmWithdrawId(null)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmWithdrawId(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>
+                  )
+                )}
               </div>
             </div>
           ))}
@@ -758,7 +798,7 @@ function MyAnalysis({ expenses }) {
 }
 
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, dateFormat }) {
+function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, onEdit, isSuperAdmin, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -865,6 +905,12 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                       ))}
                     </div>
                   )}
+                  {e.status === "Pending" && e.reviewNote && (
+                    <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Previously rejected: {e.reviewNote}</div>
+                  )}
+                  {e.lastEditedBy && (
+                    <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -879,6 +925,9 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                   </>
                 )}
                 {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
+                {isSuperAdmin && ["Pending", "Approved", "Paid"].includes(e.status) && (
+                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Edit</button>
+                )}
                 <button onClick={() => { if (window.confirm(`Permanently delete this ${fmtNPR(e.amount)} transaction? This cannot be undone.`)) onDelete(e.staffUid, e.id); }}
                   style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Delete</button>
               </div>
@@ -1187,8 +1236,14 @@ function MainApp({ user }) {
   const [allExpenses, setAllExpenses] = useState([]);
   const [tab, setTab] = useState("add");
   const [toast, setToast] = useState("");
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editReturnTab, setEditReturnTab] = useState("mine");
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+
+  useEffect(() => {
+    if (tab !== "add" && editingExpense) setEditingExpense(null);
+  }, [tab]);
 
   useEffect(() => {
     const ref = db.ref("staff");
@@ -1249,7 +1304,31 @@ function MainApp({ user }) {
     flash("Expense submitted.");
   };
 
-  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn."); };
+  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn and deleted."); };
+
+  const startEditOwn = (expense) => { setEditingExpense({ ...expense, staffUid: user.uid, editKind: "own" }); setEditReturnTab("mine"); setTab("add"); };
+  const startEditAsAdmin = (expense) => { setEditingExpense({ ...expense, editKind: "admin" }); setEditReturnTab("overview"); setTab("add"); };
+  const cancelEdit = () => { setEditingExpense(null); setTab(editReturnTab); };
+
+  const updateExpense = async (editing, form) => {
+    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
+    const amount = itemsTotal(cleanItems);
+    const updates = { date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), receipt: form.receipt || null };
+    if (editing.editKind === "own") {
+      updates.status = "Pending";
+      updates.submittedAt = new Date().toISOString();
+    } else {
+      updates.lastEditedBy = me.name;
+      updates.lastEditedAt = new Date().toISOString();
+    }
+    await db.ref(`expenses/${editing.staffUid}/${editing.id}`).update(updates);
+    const existingTagNames = tags.map((t) => t.name);
+    const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
+    newTagNames.forEach((t) => db.ref("tags").push({ name: t }));
+    flash(editing.editKind === "own" ? "Claim updated and resubmitted for review." : "Transaction updated.");
+    setEditingExpense(null);
+    setTab(editReturnTab);
+  };
 
   const review = async (staffUid, expenseId, status, note) => {
     const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
@@ -1452,8 +1531,12 @@ function MainApp({ user }) {
         {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
         )}
-        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} dateFormat={dateFormat} />}
-        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} dateFormat={dateFormat} />}
+        {tab === "add" && (
+          <AddExpense key={editingExpense ? "edit-" + editingExpense.id : "new"}
+            categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
+            editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
+        )}
+        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
         {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
         {tab === "overview" && isAdmin && (
           <div>
@@ -1462,7 +1545,7 @@ function MainApp({ user }) {
                 You have access to {visibleCategories.length} of {sortedCategories.length} categories. Totals, charts, and exports below reflect only what you're permitted to see.
               </div>
             )}
-            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />
+            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
           </div>
         )}
         {tab === "manage" && isSuperAdmin && (
