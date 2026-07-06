@@ -75,6 +75,26 @@ function objToArr(obj) {
   return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
 }
 
+// ---------- Roles & category permissions ----------
+// Three tiers: "staff" (default), "admin" (limited — can be restricted to specific
+// categories in Company Overview), "superadmin" (full access, incl. the Manage tab).
+// Legacy accounts that predate this system (isAdmin: true, no role field) are treated
+// as superadmin so nobody loses access when this ships.
+function staffRole(s) {
+  if (!s) return "staff";
+  if (s.role === "staff" || s.role === "admin" || s.role === "superadmin") return s.role;
+  return s.isAdmin ? "superadmin" : "staff";
+}
+// Category names can contain characters that aren't valid as Realtime Database key
+// segments (e.g. "Shipping/courier"). This sanitizes a name into a safe map key,
+// used consistently for reading/writing allowedCategories both here and in the
+// security rules. Avoid using ".", "#", "$", "[", "]" more than once in a single
+// category name — it's a rare edge case but the sanitizer only swaps the first hit
+// of each in the security-rule version (the app-side version below handles all of them).
+function safeKey(name) {
+  return String(name || "").replace(/[.#$\[\]\/]/g, "_");
+}
+
 // ---------- Date formatting (AD / Bikram Sambat) ----------
 function fmtDateAD(isoStr) {
   if (!isoStr) return "";
@@ -386,6 +406,56 @@ function TagPicker({ value, onChange, tags, placeholder, fieldStyle }) {
   );
 }
 
+// Type-to-filter category picker. Unlike TagPicker, selection is restricted to
+// the existing category list — no free-text "add new" fallback, since categories
+// are admin-managed only.
+function CategoryPicker({ value, onChange, categories, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) { setOpen(false); setQuery(""); } };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const matches = q ? categories.filter((c) => c.name.toLowerCase().includes(q)) : categories;
+
+  const pick = (name) => { onChange(name); setQuery(""); setOpen(false); };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        value={open ? query : (value || "")}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={(e) => { setOpen(true); setQuery(""); }}
+        placeholder={placeholder}
+        autoComplete="off"
+        style={inputStyle}
+      />
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 30,
+          background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8,
+          maxHeight: 220, overflowY: "auto", boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
+        }}>
+          {matches.length === 0 && <div style={{ padding: "8px 12px", fontSize: 13, color: "var(--ink-soft)" }}>No matching category</div>}
+          {matches.map((c) => (
+            <div key={c.id} onMouseDown={() => pick(c.name)}
+              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", fontWeight: c.name === value ? 600 : 400, background: c.name === value ? "var(--paper-dark)" : "transparent" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--paper-dark)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = c.name === value ? "var(--paper-dark)" : "transparent"; }}>
+              {c.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
   const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
@@ -443,9 +513,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
             )}
           </Field>
           <Field label="Category">
-            <select value={form.category} onChange={set("category")} required style={inputStyle}>
-              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-            </select>
+            <CategoryPicker value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v }))} categories={categories} placeholder="Type to search categories…" />
           </Field>
         </div>
 
@@ -833,6 +901,7 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
   const [draft, setDraft] = useState(name);
   const [merging, setMerging] = useState(false);
   const [target, setTarget] = useState("");
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   const save = () => {
     if (draft.trim() && draft.trim() !== name) onRename(draft.trim());
@@ -859,10 +928,17 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
           {onMoveUp && <button onClick={onMoveUp} disabled={!canMoveUp} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveUp ? 1 : 0.35 }}>↑</button>}
           {onMoveDown && <button onClick={onMoveDown} disabled={!canMoveDown} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11, opacity: canMoveDown ? 1 : 0.35 }}>↓</button>}
           {!editing && <button onClick={() => { setDraft(name); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>}
-          {mergeOptions && mergeOptions.length > 0 && <button onClick={() => setMerging((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Merge</button>}
-          <button onClick={onRemove} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+          {mergeOptions && mergeOptions.length > 0 && <button onClick={() => { setMerging((v) => !v); setConfirmingRemove(false); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Merge</button>}
+          <button onClick={() => { setConfirmingRemove((v) => !v); setMerging(false); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
         </div>
       </div>
+      {confirmingRemove && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{name}"? This can't be undone.</span>
+          <button onClick={() => { onRemove(); setConfirmingRemove(false); }} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, delete</button>
+          <button onClick={() => setConfirmingRemove(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Cancel</button>
+        </div>
+      )}
       {merging && (
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Merge "{name}" into:</span>
@@ -878,7 +954,30 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
   );
 }
 
-function StaffRow({ s, myUid, onToggleAdmin, onToggleActive }) {
+function RoleButtons({ role, onChange, disabled }) {
+  const roles = [
+    { id: "staff", label: "Staff" },
+    { id: "admin", label: "Admin" },
+    { id: "superadmin", label: "Super Admin" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      {roles.map((r) => (
+        <button key={r.id} type="button" disabled={disabled} onClick={() => onChange(r.id)}
+          style={{
+            ...ghostBtn, padding: "4px 8px", fontSize: 11,
+            background: role === r.id ? "var(--ink)" : "var(--card)",
+            color: role === r.id ? "var(--paper)" : "var(--ink)",
+            opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer",
+          }}>
+          {r.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onToggleActive }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -887,38 +986,67 @@ function StaffRow({ s, myUid, onToggleAdmin, onToggleActive }) {
       setTimeout(() => setCopied(""), 1500);
     }).catch(() => {});
   };
+  const role = staffRole(s);
+  const isMe = s.uid === myUid;
+  const grantedCount = s.allowedCategories ? Object.keys(s.allowedCategories).length : 0;
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, padding: "8px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
-      <div>
-        <div>{s.name} {s.uid === myUid && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-          {s.email ? (
-            <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+    <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+            {s.email ? (
+              <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+                style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+                {copied === "email" ? "Copied!" : s.email}
+              </span>
+            ) : (
+              <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
+            )}
+            <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
               style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-              {copied === "email" ? "Copied!" : s.email}
+              {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
             </span>
-          ) : (
-            <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
-          )}
-          <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
-            style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-            {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
-          </span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <RoleButtons role={role} onChange={(r) => onSetRole(s.uid, r)} disabled={isMe} />
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+            <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(s.uid, e.target.checked)} disabled={isMe} /> Active
+          </label>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={!!s.isAdmin} onChange={(e) => onToggleAdmin(s.uid, e.target.checked)} disabled={s.uid === myUid} /> Admin
-        </label>
-        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(s.uid, e.target.checked)} disabled={s.uid === myUid} /> Active
-        </label>
-      </div>
+      {role === "admin" && (
+        <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Categories visible to {s.name} in Company Overview
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {categories.length === 0 && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>No categories yet.</span>}
+            {categories.map((c) => {
+              const key = safeKey(c.name);
+              const checked = !!(s.allowedCategories && s.allowedCategories[key]);
+              return (
+                <label key={c.id} style={{
+                  fontSize: 11.5, display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+                  background: checked ? "var(--card)" : "transparent", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px",
+                }}>
+                  <input type="checkbox" checked={checked} onChange={(e) => onToggleCategoryAccess(s.uid, key, e.target.checked)} />
+                  {c.name}
+                </label>
+              );
+            })}
+          </div>
+          {grantedCount === 0 && (
+            <div style={{ fontSize: 11, color: "var(--rejected)", marginTop: 6 }}>No categories granted yet — {s.name} will see nothing in Company Overview until you check some above.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onToggleAdmin, onToggleActive }) {
+function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive }) {
   const [newCat, setNewCat] = useState("");
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
@@ -1021,21 +1149,21 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including this Manage tab. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Staff has no admin access. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} onToggleAdmin={onToggleAdmin} onToggleActive={onToggleActive} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} onToggleAdmin={onToggleAdmin} onToggleActive={onToggleActive} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1085,7 +1213,10 @@ function MainApp({ user }) {
   }, [user.uid]);
 
   const me = staffMap ? staffMap[user.uid] : null;
-  const isAdmin = !!(me && me.isAdmin);
+  const myRole = staffRole(me);
+  const isAdmin = myRole === "admin" || myRole === "superadmin";
+  const isSuperAdmin = myRole === "superadmin";
+  const canAccessExpense = (e) => isSuperAdmin || !!(me && me.allowedCategories && me.allowedCategories[safeKey(e.category)]);
 
   useEffect(() => {
     if (!isAdmin) { setAllExpenses([]); return; }
@@ -1121,6 +1252,8 @@ function MainApp({ user }) {
   const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn."); };
 
   const review = async (staffUid, expenseId, status, note) => {
+    const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
+    if (target && !canAccessExpense(target)) { flash("You don't have access to this category."); return; }
     await db.ref("expenses/" + staffUid + "/" + expenseId).update({ status, reviewNote: note || "", reviewedBy: me.name });
     flash("Marked " + status.toLowerCase() + ".");
   };
@@ -1143,13 +1276,19 @@ function MainApp({ user }) {
   const renameCategory = async (id, oldName, newName) => {
     const clean = newName.trim();
     if (!clean || clean === oldName) return;
-    await db.ref("categories/" + id).update({ name: clean });
+    const updates = { [`categories/${id}/name`]: clean };
     const affected = allExpenses.filter((e) => e.category === oldName);
-    if (affected.length > 0) {
-      const updates = {};
-      affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
-      await db.ref().update(updates);
+    affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+    const oldKey = safeKey(oldName), newKey = safeKey(clean);
+    if (oldKey !== newKey) {
+      Object.entries(staffMap || {}).forEach(([uid, s]) => {
+        if (s.allowedCategories && s.allowedCategories[oldKey]) {
+          updates[`staff/${uid}/allowedCategories/${newKey}`] = true;
+          updates[`staff/${uid}/allowedCategories/${oldKey}`] = null;
+        }
+      });
     }
+    await db.ref().update(updates);
     flash(`Renamed to "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
   };
 
@@ -1190,13 +1329,17 @@ function MainApp({ user }) {
   const mergeCategory = async (id, fromName, toName) => {
     const clean = toName.trim();
     if (!clean || clean === fromName) return;
+    const updates = { [`categories/${id}`]: null };
     const affected = allExpenses.filter((e) => e.category === fromName);
-    if (affected.length > 0) {
-      const updates = {};
-      affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
-      await db.ref().update(updates);
-    }
-    await db.ref("categories/" + id).remove();
+    affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+    const fromKey = safeKey(fromName), toKey = safeKey(clean);
+    Object.entries(staffMap || {}).forEach(([uid, s]) => {
+      if (s.allowedCategories && s.allowedCategories[fromKey]) {
+        updates[`staff/${uid}/allowedCategories/${toKey}`] = true;
+        updates[`staff/${uid}/allowedCategories/${fromKey}`] = null;
+      }
+    });
+    await db.ref().update(updates);
     flash(`Merged "${fromName}" into "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
   };
 
@@ -1217,6 +1360,8 @@ function MainApp({ user }) {
   };
 
   const adminDeleteExpense = async (staffUid, expenseId) => {
+    const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
+    if (target && !canAccessExpense(target)) { flash("You don't have access to this category."); return; }
     await db.ref("expenses/" + staffUid + "/" + expenseId).remove();
     flash("Transaction deleted.");
   };
@@ -1226,13 +1371,17 @@ function MainApp({ user }) {
     try {
       const cred = await secondary.auth().createUserWithEmailAndPassword(email, password);
       const uid = cred.user.uid;
-      await db.ref("staff/" + uid).set({ name: displayName, email, isAdmin: false, active: true });
+      await db.ref("staff/" + uid).set({ name: displayName, email, role: "staff", active: true });
       await secondary.auth().signOut();
     } finally {
       await secondary.delete();
     }
   };
-  const toggleAdmin = (uid, val) => db.ref("staff/" + uid + "/isAdmin").set(val);
+  const setRole = (uid, role) => db.ref("staff/" + uid + "/role").set(role);
+  const toggleCategoryAccess = (uid, categoryKey, allowed) => {
+    if (allowed) db.ref(`staff/${uid}/allowedCategories/${categoryKey}`).set(true);
+    else db.ref(`staff/${uid}/allowedCategories/${categoryKey}`).remove();
+  };
   const toggleActive = (uid, val) => db.ref("staff/" + uid + "/active").set(val);
 
   const exportCSV = (rows) => {
@@ -1251,9 +1400,13 @@ function MainApp({ user }) {
   };
 
   const sortedCategories = [...categories].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const visibleCategories = isSuperAdmin ? sortedCategories : sortedCategories.filter((c) => me && me.allowedCategories && me.allowedCategories[safeKey(c.name)]);
+  const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
-  const primaryTabs = isAdmin
+  const primaryTabs = isSuperAdmin
     ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
+    : isAdmin
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
     : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }];
   const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
   const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
@@ -1274,7 +1427,7 @@ function MainApp({ user }) {
               }}>{f}</button>
             ))}
           </div>
-          <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isAdmin ? " · Admin" : ""}</span>
+          <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isSuperAdmin ? " · Super Admin" : isAdmin ? " · Admin" : ""}</span>
           {isAdmin ? (
             <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
           ) : (
@@ -1302,14 +1455,23 @@ function MainApp({ user }) {
         {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} dateFormat={dateFormat} />}
         {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} dateFormat={dateFormat} />}
         {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
-        {tab === "overview" && isAdmin && <Overview expenses={allExpenses} staffMap={staffMap} categories={sortedCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />}
-        {tab === "manage" && isAdmin && (
+        {tab === "overview" && isAdmin && (
+          <div>
+            {!isSuperAdmin && (
+              <div style={{ background: "var(--paper-dark)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>
+                You have access to {visibleCategories.length} of {sortedCategories.length} categories. Totals, charts, and exports below reflect only what you're permitted to see.
+              </div>
+            )}
+            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />
+          </div>
+        )}
+        {tab === "manage" && isSuperAdmin && (
           <Manage
             categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
             onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
             onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
             onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
-            onCreateStaff={createStaff} onToggleAdmin={toggleAdmin} onToggleActive={toggleActive}
+            onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
           />
         )}
       </div>
