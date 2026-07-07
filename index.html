@@ -60,6 +60,13 @@ const STATUS_META = {
   Rejected: { color: "var(--rejected)", label: "Rejected" },
   Paid: { color: "var(--paid)", label: "Paid" },
 };
+const ATT_STATUS_META = {
+  present: { color: "var(--approved)", label: "Present" },
+  late: { color: "var(--pending)", label: "Late" },
+  half_day: { color: "var(--paid)", label: "Half day" },
+  absent: { color: "var(--rejected)", label: "Absent" },
+  awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
+};
 const BAR_COLORS = ["#F5C300", "#2A6A5A", "#B5762B", "#8C3B3B", "#2F3B52", "#7A6FB0", "#3E7CB1", "#C97C2C"];
 
 function fmtNPR(n) {
@@ -68,6 +75,37 @@ function fmtNPR(n) {
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return (d || "").slice(0, 7); }
+
+// ---------- Attendance helpers (local device time, not UTC — matters for
+// midnight rollover and late-flagging, unlike the UTC-based todayStr above) ----------
+function pad2(n) { return String(n).padStart(2, "0"); }
+function localDateKey(d) { d = d || new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function localTimeStr(d) { d = d || new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function fmtTimeLabel(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  let h = d.getHours(); const m = pad2(d.getMinutes()); const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m} ${ap}`;
+}
+function computeAttStatus(timeStr, location) {
+  if (!location || !location.shiftStart) return "present";
+  const [inH, inM] = timeStr.split(":").map(Number);
+  const [shH, shM] = location.shiftStart.split(":").map(Number);
+  const inMinutes = inH * 60 + inM;
+  const cutoff = shH * 60 + shM + (Number(location.graceMinutes) || 0);
+  return inMinutes > cutoff ? "late" : "present";
+}
+function getGeoPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Location isn't available on this device or browser.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => reject(new Error(err.message || "Couldn't get your location — check location permission.")),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  });
+}
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 }
@@ -196,8 +234,9 @@ function MoreMenu({ items }) {
   );
 }
 
-function StatusBadge({ status }) {
-  const meta = STATUS_META[status] || STATUS_META.Pending;
+function StatusBadge({ status, metaMap }) {
+  const map = metaMap || STATUS_META;
+  const meta = map[status] || { color: "var(--ink-soft)", label: status };
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 999,
@@ -1003,6 +1042,73 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
   );
 }
 
+function LocationRow({ loc, routers, onUpdate, onRemove, onAddRouter, onRemoveRouter }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 });
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [newSsid, setNewSsid] = useState("");
+  const [newBssid, setNewBssid] = useState("");
+  const myRouters = routers.filter((r) => r.locationId === loc.id);
+
+  const save = () => {
+    if (draft.name.trim()) onUpdate(loc.id, { name: draft.name.trim(), shiftStart: draft.shiftStart, graceMinutes: Number(draft.graceMinutes) || 0 });
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
+        {editing ? (
+          <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }}>
+            <input autoFocus value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="Location name" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1, minWidth: 100 }} />
+            <input type="time" value={draft.shiftStart} onChange={(e) => setDraft((d) => ({ ...d, shiftStart: e.target.value }))}
+              style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 100 }} />
+            <input type="number" min="0" value={draft.graceMinutes} onChange={(e) => setDraft((d) => ({ ...d, graceMinutes: e.target.value }))}
+              placeholder="Grace min" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 80 }} />
+          </div>
+        ) : (
+          <span style={{ flex: 1 }}>
+            {loc.name}
+            <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>· shift {loc.shiftStart || "09:00"} · {loc.graceMinutes ?? 0} min grace</span>
+          </span>
+        )}
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {editing ? (
+            <button onClick={save} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Save</button>
+          ) : (
+            <button onClick={() => { setDraft({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 }); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>
+          )}
+          <button onClick={() => setConfirmingRemove((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+        </div>
+      </div>
+      {confirmingRemove && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{loc.name}" and its {myRouters.length} router{myRouters.length === 1 ? "" : "s"}? This can't be undone.</span>
+          <button onClick={() => { onRemove(loc.id); setConfirmingRemove(false); }} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, delete</button>
+          <button onClick={() => setConfirmingRemove(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Cancel</button>
+        </div>
+      )}
+      <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
+        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>Routers ({myRouters.length})</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          {myRouters.map((r) => (
+            <span key={r.id} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: "var(--card)", border: "1px solid var(--line)", fontFamily: "'IBM Plex Mono', monospace", display: "flex", alignItems: "center", gap: 6 }}>
+              {r.ssid} · {r.bssid}
+              <span onClick={() => onRemoveRouter(r.id)} style={{ cursor: "pointer", color: "var(--rejected)", fontWeight: 700 }} title="Remove router">×</span>
+            </span>
+          ))}
+          <input value={newSsid} onChange={(e) => setNewSsid(e.target.value)} placeholder="SSID" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 90 }} />
+          <input value={newBssid} onChange={(e) => setNewBssid(e.target.value)} placeholder="BSSID (MAC address)" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 150 }} />
+          <button onClick={() => { if (newSsid.trim() && newBssid.trim()) { onAddRouter(loc.id, newSsid, newBssid); setNewSsid(""); setNewBssid(""); } }}
+            style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11 }}>+ Add router</button>
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginTop: 6 }}>Manual entry for now — the Android app will get a scan-and-detect option later.</div>
+      </div>
+    </div>
+  );
+}
+
 function RoleButtons({ role, onChange, disabled }) {
   const roles = [
     { id: "staff", label: "Staff" },
@@ -1026,7 +1132,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onToggleActive }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1065,6 +1171,19 @@ function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onT
           </label>
         </div>
       </div>
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 6 }}>
+          Location
+          <select value={s.locationId || ""} onChange={(e) => onSetLocation(s.uid, e.target.value)} style={{ ...smallSelect, fontSize: 11.5 }}>
+            <option value="">None assigned</option>
+            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="checkbox" checked={!!s.remoteCheckInAllowed} onChange={(e) => onToggleRemote(s.uid, e.target.checked)} />
+          Remote check-in allowed
+        </label>
+      </div>
       {role === "admin" && (
         <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
           <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.04em" }}>
@@ -1095,8 +1214,11 @@ function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onT
   );
 }
 
-function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive }) {
+function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, locations, routers, onAddLocation, onUpdateLocation, onRemoveLocation, onAddRouter, onRemoveRouter, onSetLocation, onToggleRemote }) {
   const [newCat, setNewCat] = useState("");
+  const [newLocName, setNewLocName] = useState("");
+  const [newLocShift, setNewLocShift] = useState("09:00");
+  const [newLocGrace, setNewLocGrace] = useState("15");
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1187,6 +1309,22 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
         </div>
       </CollapsibleCard>
 
+      <CollapsibleCard storageKey="locations" title="Locations"
+        subtitle="Each location has its own shift start time, grace period, and registered WiFi routers (used by the Android app for auto check-in — coming separately).">
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <input value={newLocName} onChange={(e) => setNewLocName(e.target.value)} placeholder="Location name" style={{ ...inputStyle, flex: 1, minWidth: 120 }} />
+          <input type="time" value={newLocShift} onChange={(e) => setNewLocShift(e.target.value)} style={{ ...inputStyle, width: 120 }} />
+          <input type="number" min="0" value={newLocGrace} onChange={(e) => setNewLocGrace(e.target.value)} placeholder="Grace min" style={{ ...inputStyle, width: 100 }} />
+          <button onClick={() => { onAddLocation(newLocName, newLocShift, newLocGrace); setNewLocName(""); setNewLocShift("09:00"); setNewLocGrace("15"); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {locations.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No locations yet — add one above.</div>}
+          {locations.map((loc) => (
+            <LocationRow key={loc.id} loc={loc} routers={routers} onUpdate={onUpdateLocation} onRemove={onRemoveLocation} onAddRouter={onAddRouter} onRemoveRouter={onRemoveRouter} />
+          ))}
+        </div>
+      </CollapsibleCard>
+
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
@@ -1205,14 +1343,14 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1221,6 +1359,157 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
 }
 
 // ---------- Main App ----------
+function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
+  const [selDate, setSelDate] = useState(localDateKey());
+  const pending = allAttendance.filter((a) => a.status === "awaiting_checkin");
+  const dayRecords = allAttendance.filter((a) => a.date === selDate);
+  const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
+  const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      {pending.length > 0 && (
+        <Card>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Pending check-in requests ({pending.length})</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {pending.map((a) => {
+              const s = staffMap[a.staffUid] || {};
+              return (
+                <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
+                    {a.requestNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>"{a.requestNote}"</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => onApproveRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
+                    <button onClick={() => onRejectRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>Team attendance</div>
+          <input type="date" value={selDate} onChange={(e) => setSelDate(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {staffList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
+          {staffList.map((s) => {
+            const rec = dayRecords.find((a) => a.staffUid === s.uid);
+            const status = rec ? rec.status : "absent";
+            return (
+              <div key={s.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
+                <div>
+                  <span>{s.name}</span>
+                  <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{locName(s.locationId)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
+                  <StatusBadge status={status} metaMap={ATT_STATUS_META} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, isAdmin, allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
+  const [note, setNote] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [halfDayToggle, setHalfDayToggle] = useState(false);
+  const dateKey = localDateKey();
+  const today = myAttendance.find((a) => a.date === dateKey);
+  const canSelfCheckIn = !!me.remoteCheckInAllowed;
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Attendance</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>{location ? location.name : "No location assigned"}</div>
+
+        {!today && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Not checked in yet</div>
+            {canSelfCheckIn ? (
+              <button onClick={onCheckIn} disabled={attBusy}
+                style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
+                {attBusy ? "Getting your location…" : "Check in"}
+              </button>
+            ) : requesting ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (e.g. WiFi is down)" style={inputStyle} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { onRequestCheckIn(note); setRequesting(false); setNote(""); }} disabled={attBusy} style={{ ...ghostBtn, flex: 1 }}>{attBusy ? "Sending…" : "Send request"}</button>
+                  <button onClick={() => setRequesting(false)} style={ghostBtn}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setRequesting(true)} style={ghostBtn}>Request check-in</button>
+            )}
+            {attError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 8 }}>{attError}</div>}
+          </div>
+        )}
+
+        {today && today.status === "awaiting_checkin" && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Check-in request sent</div>
+            {today.requestNote && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 8, fontStyle: "italic" }}>"{today.requestNote}"</div>}
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>Waiting for an admin to check you in.</div>
+            <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
+          </div>
+        )}
+
+        {today && today.checkInTime && !today.checkOutTime && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Checked in at {fmtTimeLabel(today.checkInTime)}</div>
+              <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+            </div>
+            {today.checkedInBy && today.checkedInBy !== "self" && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Checked in by {today.checkedInBy}</div>}
+            <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
+              <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
+            </label>
+            <button onClick={() => onCheckOut(halfDayToggle)} disabled={attBusy} style={{ ...ghostBtn, width: "100%" }}>{attBusy ? "Checking out…" : "Check out"}</button>
+          </div>
+        )}
+
+        {today && today.checkInTime && today.checkOutTime && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtTimeLabel(today.checkInTime)} – {fmtTimeLabel(today.checkOutTime)}</div>
+            <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent history</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {myAttendance.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No attendance recorded yet.</div>}
+          {myAttendance.slice(0, 14).map((a) => (
+            <div key={a.date} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtDate(a.date, dateFormat)}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                  {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
+                </div>
+              </div>
+              <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {isAdmin && <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={onApproveRequest} onRejectRequest={onRejectRequest} />}
+    </div>
+  );
+}
+
 function MainApp({ user }) {
   const isMobile = useIsMobile();
   const [dateFormat, setDateFormat] = useState(() => { try { return localStorage.getItem("mp-date-format") || "AD"; } catch (e) { return "AD"; } });
@@ -1234,6 +1523,12 @@ function MainApp({ user }) {
   const [tags, setTags] = useState([]);
   const [myExpenses, setMyExpenses] = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [routers, setRouters] = useState([]);
+  const [myAttendance, setMyAttendance] = useState([]);
+  const [allAttendance, setAllAttendance] = useState([]);
+  const [attBusy, setAttBusy] = useState(false);
+  const [attError, setAttError] = useState("");
   const [tab, setTab] = useState("add");
   const [toast, setToast] = useState("");
   const [editingExpense, setEditingExpense] = useState(null);
@@ -1267,6 +1562,25 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [user.uid]);
 
+  useEffect(() => {
+    const locRef = db.ref("locations"), routerRef = db.ref("routers");
+    const c1 = (snap) => setLocations(objToArr(snap.val()));
+    const c2 = (snap) => setRouters(objToArr(snap.val()));
+    locRef.on("value", c1); routerRef.on("value", c2);
+    return () => { locRef.off("value", c1); routerRef.off("value", c2); };
+  }, []);
+
+  useEffect(() => {
+    const ref = db.ref("attendance/" + user.uid);
+    const cb = (snap) => {
+      const arr = objToArr(snap.val()).map((r) => ({ ...r, date: r.id }));
+      arr.sort((a, b) => (a.date < b.date ? 1 : -1));
+      setMyAttendance(arr);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
   const me = staffMap ? staffMap[user.uid] : null;
   const myRole = staffRole(me);
   const isAdmin = myRole === "admin" || myRole === "superadmin";
@@ -1283,6 +1597,21 @@ function MainApp({ user }) {
         Object.entries(exps || {}).forEach(([id, val]) => out.push({ id, staffUid: uid, ...val }));
       });
       setAllExpenses(out);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) { setAllAttendance([]); return; }
+    const ref = db.ref("attendance");
+    const cb = (snap) => {
+      const all = snap.val() || {};
+      const out = [];
+      Object.entries(all).forEach(([uid, days]) => {
+        Object.entries(days || {}).forEach(([date, val]) => out.push({ date, staffUid: uid, ...val }));
+      });
+      setAllAttendance(out);
     };
     ref.on("value", cb);
     return () => ref.off("value", cb);
@@ -1463,6 +1792,90 @@ function MainApp({ user }) {
   };
   const toggleActive = (uid, val) => db.ref("staff/" + uid + "/active").set(val);
 
+  const addLocation = (name, shiftStart, graceMinutes) => {
+    const clean = (name || "").trim();
+    if (!clean) return;
+    db.ref("locations").push({ name: clean, shiftStart: shiftStart || "09:00", graceMinutes: Number(graceMinutes) || 0 });
+  };
+  const updateLocation = (id, fields) => db.ref("locations/" + id).update(fields);
+  const removeLocation = async (id) => {
+    const updates = { [`locations/${id}`]: null };
+    routers.filter((r) => r.locationId === id).forEach((r) => { updates[`routers/${r.id}`] = null; });
+    await db.ref().update(updates);
+    flash("Location removed.");
+  };
+  const addRouter = (locationId, ssid, bssid) => db.ref("routers").push({ locationId, ssid: ssid.trim(), bssid: bssid.trim() });
+  const removeRouter = (id) => db.ref("routers/" + id).remove();
+  const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
+  const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
+
+  const locationsMap = Object.fromEntries(locations.map((l) => [l.id, l]));
+
+  const checkIn = async () => {
+    setAttBusy(true); setAttError("");
+    try {
+      const geo = await getGeoPosition();
+      const now = new Date();
+      const dateKey = localDateKey(now);
+      const loc = me.locationId ? locationsMap[me.locationId] : null;
+      const status = computeAttStatus(localTimeStr(now), loc);
+      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
+        checkInTime: now.toISOString(), checkOutTime: null, method: "gps_remote",
+        geoLat: geo.lat, geoLng: geo.lng, locationId: me.locationId || null, status, checkedInBy: "self",
+      });
+      flash("Checked in.");
+    } catch (err) {
+      setAttError(err.message || "Couldn't check in.");
+    }
+    setAttBusy(false);
+  };
+
+  const requestCheckIn = async (note) => {
+    setAttBusy(true); setAttError("");
+    try {
+      let geo = null;
+      try { geo = await getGeoPosition(); } catch (e) { /* optional for a request */ }
+      const now = new Date();
+      const dateKey = localDateKey(now);
+      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
+        checkInTime: null, checkOutTime: null, method: "admin_manual", status: "awaiting_checkin",
+        requestNote: (note || "").trim(), requestedAt: now.toISOString(),
+        geoLat: geo ? geo.lat : null, geoLng: geo ? geo.lng : null, locationId: me.locationId || null, checkedInBy: null,
+      });
+      flash("Check-in request sent.");
+    } catch (err) {
+      setAttError(err.message || "Couldn't send the request.");
+    }
+    setAttBusy(false);
+  };
+
+  const cancelCheckInRequest = async () => {
+    await db.ref(`attendance/${user.uid}/${localDateKey()}`).remove();
+    flash("Request withdrawn.");
+  };
+
+  const checkOut = async (halfDay) => {
+    setAttBusy(true);
+    const updates = { checkOutTime: new Date().toISOString() };
+    if (halfDay) updates.status = "half_day";
+    await db.ref(`attendance/${user.uid}/${localDateKey()}`).update(updates);
+    flash(halfDay ? "Checked out — marked half day." : "Checked out.");
+    setAttBusy(false);
+  };
+
+  const approveCheckInRequest = async (staffUid, dateKey) => {
+    const staffRec = staffMap[staffUid];
+    const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
+    const now = new Date();
+    const status = computeAttStatus(localTimeStr(now), loc);
+    await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: now.toISOString(), status, checkedInBy: me.name });
+    flash("Check-in approved.");
+  };
+  const rejectCheckInRequest = async (staffUid, dateKey) => {
+    await db.ref(`attendance/${staffUid}/${dateKey}`).remove();
+    flash("Request rejected.");
+  };
+
   const exportCSV = (rows) => {
     const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
@@ -1483,10 +1896,10 @@ function MainApp({ user }) {
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
   const primaryTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
     : isAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
-    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }];
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }];
   const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
   const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
 
@@ -1537,6 +1950,15 @@ function MainApp({ user }) {
             editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
         )}
         {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
+        {tab === "attendance" && (
+          <AttendanceTab
+            me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
+            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
+            attBusy={attBusy} attError={attError}
+            isAdmin={isAdmin} allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat}
+            onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest}
+          />
+        )}
         {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
         {tab === "overview" && isAdmin && (
           <div>
@@ -1555,6 +1977,10 @@ function MainApp({ user }) {
             onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
             onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
+            locations={locations} routers={routers}
+            onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation}
+            onAddRouter={addRouter} onRemoveRouter={removeRouter}
+            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
           />
         )}
       </div>
