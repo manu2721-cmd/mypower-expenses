@@ -1214,35 +1214,10 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
   );
 }
 
-function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, locations, routers, onAddLocation, onUpdateLocation, onRemoveLocation, onAddRouter, onRemoveRouter, onSetLocation, onToggleRemote }) {
+function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, tags, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount }) {
   const [newCat, setNewCat] = useState("");
-  const [newLocName, setNewLocName] = useState("");
-  const [newLocShift, setNewLocShift] = useState("09:00");
-  const [newLocGrace, setNewLocGrace] = useState("15");
-  const [newStaffName, setNewStaffName] = useState("");
-  const [newStaffEmail, setNewStaffEmail] = useState("");
-  const [newStaffPin, setNewStaffPin] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
   const [catSearch, setCatSearch] = useState("");
   const [tagSearch, setTagSearch] = useState("");
-  const [staffSearch, setStaffSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
-
-  const createStaff = async () => {
-    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
-      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
-    }
-    setBusy(true); setMsg("");
-    try {
-      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
-      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
-      setMsg("Staff login created.");
-    } catch (err) {
-      setMsg("Could not create login: " + err.message);
-    }
-    setBusy(false);
-  };
 
   const catQ = catSearch.trim().toLowerCase();
   const filteredCategories = categories.filter((c) => c.name.toLowerCase().includes(catQ));
@@ -1251,12 +1226,6 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
   const tagsWithCount = tags.map((t) => ({ ...t, count: tagUsageCount(t.name) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   const filteredTags = tagsWithCount.filter((t) => t.name.toLowerCase().includes(tagQ));
-
-  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
-  const staffQ = staffSearch.trim().toLowerCase();
-  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
-  const activeStaff = filteredStaff.filter((s) => s.active !== false);
-  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1308,7 +1277,17 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
           ))}
         </div>
       </CollapsibleCard>
+    </div>
+  );
+}
 
+function AttendanceSettings({ locations, routers, onAddLocation, onUpdateLocation, onRemoveLocation, onAddRouter, onRemoveRouter }) {
+  const [newLocName, setNewLocName] = useState("");
+  const [newLocShift, setNewLocShift] = useState("09:00");
+  const [newLocGrace, setNewLocGrace] = useState("15");
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
       <CollapsibleCard storageKey="locations" title="Locations"
         subtitle="Each location has its own shift start time, grace period, and registered WiFi routers (used by the Android app for auto check-in — coming separately).">
         <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
@@ -1324,7 +1303,42 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
           ))}
         </div>
       </CollapsibleCard>
+    </div>
+  );
+}
 
+function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffPin, setNewStaffPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+
+  const createStaff = async () => {
+    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
+      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
+    }
+    setBusy(true); setMsg("");
+    try {
+      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
+      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
+      setMsg("Staff login created.");
+    } catch (err) {
+      setMsg("Could not create login: " + err.message);
+    }
+    setBusy(false);
+  };
+
+  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
+  const staffQ = staffSearch.trim().toLowerCase();
+  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
+  const activeStaff = filteredStaff.filter((s) => s.active !== false);
+  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
@@ -1336,7 +1350,7 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including this Manage tab. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Staff has no admin access. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
@@ -1419,7 +1433,7 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
   );
 }
 
-function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, isAdmin, allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
+function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, dateFormat }) {
   const [note, setNote] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [halfDayToggle, setHalfDayToggle] = useState(false);
@@ -1504,8 +1518,51 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
 
-      {isAdmin && <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={onApproveRequest} onRejectRequest={onRejectRequest} />}
+// Text wordmark for now — swap the placeholder block below for an <img src="logo.png" .../>
+// once the real logo file is added to the repo. Kept as one component so that's a one-line change.
+function Logo({ large }) {
+  return (
+    <div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: large ? 13 : 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
+      {large && <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 28, marginTop: 4 }}>Staff Portal</div>}
+    </div>
+  );
+}
+
+function HomeCard({ label, sub, onClick, accent }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "block", width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+      background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "28px 24px",
+    }}>
+      <div style={{ width: 40, height: 4, background: accent, borderRadius: 2, marginBottom: 18 }} />
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 20, fontWeight: 600, marginBottom: 6 }}>{label}</div>
+      {sub && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{sub}</div>}
+    </button>
+  );
+}
+
+function HomeScreen({ me, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterPeople, onSignOut }) {
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
+        <button onClick={onSignOut} style={ghostBtn}>Sign out</button>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: isMobile ? "20px 20px 40px" : "20px 20px 60px", textAlign: "center" }}>
+        <Logo large />
+        <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 34px" }}>Hi, {me.name}</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
+          <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
+          <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
+        </div>
+        {isSuperAdmin && (
+          <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1529,6 +1586,7 @@ function MainApp({ user }) {
   const [allAttendance, setAllAttendance] = useState([]);
   const [attBusy, setAttBusy] = useState(false);
   const [attError, setAttError] = useState("");
+  const [section, setSection] = useState("home");
   const [tab, setTab] = useState("add");
   const [toast, setToast] = useState("");
   const [editingExpense, setEditingExpense] = useState(null);
@@ -1537,8 +1595,8 @@ function MainApp({ user }) {
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
 
   useEffect(() => {
-    if (tab !== "add" && editingExpense) setEditingExpense(null);
-  }, [tab]);
+    if ((tab !== "add" || section !== "expense") && editingExpense) setEditingExpense(null);
+  }, [tab, section]);
 
   useEffect(() => {
     const ref = db.ref("staff");
@@ -1635,9 +1693,9 @@ function MainApp({ user }) {
 
   const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn and deleted."); };
 
-  const startEditOwn = (expense) => { setEditingExpense({ ...expense, staffUid: user.uid, editKind: "own" }); setEditReturnTab("mine"); setTab("add"); };
-  const startEditAsAdmin = (expense) => { setEditingExpense({ ...expense, editKind: "admin" }); setEditReturnTab("overview"); setTab("add"); };
-  const cancelEdit = () => { setEditingExpense(null); setTab(editReturnTab); };
+  const startEditOwn = (expense) => { setEditingExpense({ ...expense, staffUid: user.uid, editKind: "own" }); setEditReturnTab("mine"); setSection("expense"); setTab("add"); };
+  const startEditAsAdmin = (expense) => { setEditingExpense({ ...expense, editKind: "admin" }); setEditReturnTab("overview"); setSection("expense"); setTab("add"); };
+  const cancelEdit = () => { setEditingExpense(null); setSection("expense"); setTab(editReturnTab); };
 
   const updateExpense = async (editing, form) => {
     const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
@@ -1895,20 +1953,41 @@ function MainApp({ user }) {
   const visibleCategories = isSuperAdmin ? sortedCategories : sortedCategories.filter((c) => me && me.allowedCategories && me.allowedCategories[safeKey(c.name)]);
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
-  const primaryTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
+  const expenseTabs = isSuperAdmin
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "expenseSettings", label: "Categories & Tags" }]
     : isAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
-    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "attendance", label: "Attendance" }];
-  const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
-  const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
+
+  const attendanceTabs = isSuperAdmin
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }, { id: "attendanceSettings", label: "Locations" }]
+    : isAdmin
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }]
+    : [{ id: "attendance", label: "My Attendance" }];
+
+  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : [];
+
+  const goHome = () => setSection("home");
+  const enterExpense = () => { setSection("expense"); setTab("add"); };
+  const enterAttendance = () => { setSection("attendance"); setTab("attendance"); };
+  const enterPeople = () => setSection("people");
+
+  if (section === "home") {
+    return (
+      <HomeScreen me={me} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterPeople={enterPeople}
+        onSignOut={() => auth.signOut()} />
+    );
+  }
+
+  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : "Staff & permissions";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
       <div style={{ padding: isMobile ? "16px 16px 14px" : "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
-        <div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
-          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>Expense Ledger</div>
+        <div onClick={goHome} style={{ cursor: "pointer" }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>← MY POWER</div>
+          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>{sectionLabel}</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
@@ -1920,47 +1999,30 @@ function MainApp({ user }) {
             ))}
           </div>
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isSuperAdmin ? " · Super Admin" : isAdmin ? " · Admin" : ""}</span>
-          {isAdmin ? (
-            <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
-          ) : (
-            <MoreMenu items={[
-              ...moreTabs.map((t) => ({ label: t.label, onClick: () => setTab(t.id) })),
-              { label: "Sign out", danger: true, onClick: () => auth.signOut() },
-            ]} />
-          )}
+          <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
-        {primaryTabs.map((it) => (
-          <button key={it.id} onClick={() => setTab(it.id)} style={{
-            padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600,
-            color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
-          }}>{it.label}</button>
-        ))}
-      </div>
+      {section !== "people" && (
+        <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)", overflowX: "auto" }}>
+          {sectionTabs.map((it) => (
+            <button key={it.id} onClick={() => setTab(it.id)} style={{
+              padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600, whiteSpace: "nowrap",
+              color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
+            }}>{it.label}</button>
+          ))}
+        </div>
+      )}
 
       <div style={{ padding: isMobile ? "16px 16px" : "20px 28px" }}>
-        {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
-          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
-        )}
-        {tab === "add" && (
+        {section === "expense" && tab === "add" && (
           <AddExpense key={editingExpense ? "edit-" + editingExpense.id : "new"}
             categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
             editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
         )}
-        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
-        {tab === "attendance" && (
-          <AttendanceTab
-            me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
-            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
-            attBusy={attBusy} attError={attError}
-            isAdmin={isAdmin} allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat}
-            onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest}
-          />
-        )}
-        {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
-        {tab === "overview" && isAdmin && (
+        {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
+        {section === "expense" && tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
+        {section === "expense" && tab === "overview" && isAdmin && (
           <div>
             {!isSuperAdmin && (
               <div style={{ background: "var(--paper-dark)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>
@@ -1970,16 +2032,32 @@ function MainApp({ user }) {
             <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
           </div>
         )}
-        {tab === "manage" && isSuperAdmin && (
-          <Manage
-            categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
-            onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
+        {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
+          <ExpenseSettings
+            categories={sortedCategories} onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
             onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
-            onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
+            tags={tags} onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
+          />
+        )}
+
+        {section === "attendance" && tab === "attendance" && (
+          <AttendanceTab
+            me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
+            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
+            attBusy={attBusy} attError={attError} dateFormat={dateFormat}
+          />
+        )}
+        {section === "attendance" && tab === "team" && isAdmin && (
+          <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
+        )}
+        {section === "attendance" && tab === "attendanceSettings" && isSuperAdmin && (
+          <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
+        )}
+
+        {section === "people" && isSuperAdmin && (
+          <PeopleManage
+            staffMap={staffMap} myUid={user.uid} categories={sortedCategories} locations={locations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
-            locations={locations} routers={routers}
-            onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation}
-            onAddRouter={addRouter} onRemoveRouter={removeRouter}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
           />
         )}
