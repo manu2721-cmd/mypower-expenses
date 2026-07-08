@@ -60,13 +60,6 @@ const STATUS_META = {
   Rejected: { color: "var(--rejected)", label: "Rejected" },
   Paid: { color: "var(--paid)", label: "Paid" },
 };
-const ATT_STATUS_META = {
-  present: { color: "var(--approved)", label: "Present" },
-  late: { color: "var(--pending)", label: "Late" },
-  half_day: { color: "var(--paid)", label: "Half day" },
-  absent: { color: "var(--rejected)", label: "Absent" },
-  awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
-};
 const BAR_COLORS = ["#F5C300", "#2A6A5A", "#B5762B", "#8C3B3B", "#2F3B52", "#7A6FB0", "#3E7CB1", "#C97C2C"];
 
 function fmtNPR(n) {
@@ -75,37 +68,6 @@ function fmtNPR(n) {
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return (d || "").slice(0, 7); }
-
-// ---------- Attendance helpers (local device time, not UTC — matters for
-// midnight rollover and late-flagging, unlike the UTC-based todayStr above) ----------
-function pad2(n) { return String(n).padStart(2, "0"); }
-function localDateKey(d) { d = d || new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
-function localTimeStr(d) { d = d || new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
-function fmtTimeLabel(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  let h = d.getHours(); const m = pad2(d.getMinutes()); const ap = h >= 12 ? "PM" : "AM";
-  h = h % 12; if (h === 0) h = 12;
-  return `${h}:${m} ${ap}`;
-}
-function computeAttStatus(timeStr, location) {
-  if (!location || !location.shiftStart) return "present";
-  const [inH, inM] = timeStr.split(":").map(Number);
-  const [shH, shM] = location.shiftStart.split(":").map(Number);
-  const inMinutes = inH * 60 + inM;
-  const cutoff = shH * 60 + shM + (Number(location.graceMinutes) || 0);
-  return inMinutes > cutoff ? "late" : "present";
-}
-function getGeoPosition() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) { reject(new Error("Location isn't available on this device or browser.")); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => reject(new Error(err.message || "Couldn't get your location — check location permission.")),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    );
-  });
-}
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 }
@@ -234,9 +196,8 @@ function MoreMenu({ items }) {
   );
 }
 
-function StatusBadge({ status, metaMap }) {
-  const map = metaMap || STATUS_META;
-  const meta = map[status] || { color: "var(--ink-soft)", label: status };
+function StatusBadge({ status }) {
+  const meta = STATUS_META[status] || STATUS_META.Pending;
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 999,
@@ -285,9 +246,8 @@ const inputStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid v
 const smallSelect = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 13 };
 const ghostBtn = { padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" };
 
-function Field({ label, children, plain }) {
-  const Tag = plain ? "div" : "label";
-  return <Tag style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</Tag>;
+function Field({ label, children }) {
+  return <label style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</label>;
 }
 
 function StatCard({ label, value, accent }) {
@@ -496,24 +456,9 @@ function CategoryPicker({ value, onChange, categories, placeholder }) {
   );
 }
 
-function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat }) {
+function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
-  const buildForm = () => {
-    if (editingExpense) {
-      return {
-        date: editingExpense.date || todayStr(),
-        category: editingExpense.category || categories[0]?.name || "",
-        paymentMode: editingExpense.paymentMode || PAYMENT_MODES[0],
-        note: editingExpense.note || "",
-        items: editingExpense.items && editingExpense.items.length > 0
-          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, qty: it.qty, unitPrice: it.unitPrice }))
-          : [emptyItem()],
-        receipt: editingExpense.receipt || null,
-      };
-    }
-    return { date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null };
-  };
-  const [form, setForm] = useState(buildForm);
+  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
   const [submitting, setSubmitting] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [fileError, setFileError] = useState("");
@@ -551,23 +496,14 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    if (editingExpense) {
-      await onUpdate(editingExpense, form);
-    } else {
-      await onSubmit(form);
-      setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
-    }
+    await onSubmit(form);
+    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
     setSubmitting(false);
   };
 
   return (
     <Card style={{ maxWidth: 660, padding: isMobile ? 16 : 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600 }}>
-          {editingExpense ? (editingExpense.editKind === "own" ? "Edit & resubmit claim" : "Edit transaction") : "Log a new expense"}
-        </div>
-        {editingExpense && <button type="button" onClick={onCancelEdit} style={{ ...ghostBtn, fontSize: 12 }}>Cancel</button>}
-      </div>
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           <Field label="Date">
@@ -648,7 +584,7 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
           <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
-        <Field label="Receipt / bill photo (optional)" plain>
+        <Field label="Receipt / bill photo (optional)">
           {!form.receipt ? (
             <div>
               <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
@@ -688,18 +624,17 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
           marginTop: 4, padding: isMobile ? "14px 18px" : "11px 18px", borderRadius: 8, border: "none",
           background: (!canSubmit || submitting || compressing) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
           cursor: (!canSubmit || submitting || compressing) ? "not-allowed" : "pointer",
-        }}>{submitting ? "Saving…" : editingExpense ? `Save changes — ${fmtNPR(total)}` : `Submit claim — ${fmtNPR(total)}`}</button>
+        }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
       </form>
     </Card>
   );
 }
 
 // ---------- My Expenses ----------
-function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat }) {
+function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [confirmWithdrawId, setConfirmWithdrawId] = useState(null);
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
     .sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, fromDate, toDate]);
 
@@ -758,26 +693,12 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
                     </div>
                   )}
                   {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
-                  {e.lastEditedBy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
                 <StatusBadge status={e.status} />
-                {(e.status === "Pending" || e.status === "Rejected") && confirmWithdrawId !== e.id && (
-                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>{e.status === "Rejected" ? "Edit & resubmit" : "Edit"}</button>
-                )}
-                {e.status === "Pending" && (
-                  confirmWithdrawId === e.id ? (
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete this claim for good?</span>
-                      <button onClick={() => { onWithdraw(e.id); setConfirmWithdrawId(null); }} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, withdraw</button>
-                      <button onClick={() => setConfirmWithdrawId(null)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setConfirmWithdrawId(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>
-                  )
-                )}
+                {e.status === "Pending" && <button onClick={() => onWithdraw(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>}
               </div>
             </div>
           ))}
@@ -837,7 +758,7 @@ function MyAnalysis({ expenses }) {
 }
 
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, onEdit, isSuperAdmin, dateFormat }) {
+function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -944,12 +865,6 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                       ))}
                     </div>
                   )}
-                  {e.status === "Pending" && e.reviewNote && (
-                    <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Previously rejected: {e.reviewNote}</div>
-                  )}
-                  {e.lastEditedBy && (
-                    <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>
-                  )}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -964,9 +879,6 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                   </>
                 )}
                 {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
-                {isSuperAdmin && ["Pending", "Approved", "Paid"].includes(e.status) && (
-                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Edit</button>
-                )}
                 <button onClick={() => { if (window.confirm(`Permanently delete this ${fmtNPR(e.amount)} transaction? This cannot be undone.`)) onDelete(e.staffUid, e.id); }}
                   style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Delete</button>
               </div>
@@ -1042,73 +954,6 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
   );
 }
 
-function LocationRow({ loc, routers, onUpdate, onRemove, onAddRouter, onRemoveRouter }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 });
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [newSsid, setNewSsid] = useState("");
-  const [newBssid, setNewBssid] = useState("");
-  const myRouters = routers.filter((r) => r.locationId === loc.id);
-
-  const save = () => {
-    if (draft.name.trim()) onUpdate(loc.id, { name: draft.name.trim(), shiftStart: draft.shiftStart, graceMinutes: Number(draft.graceMinutes) || 0 });
-    setEditing(false);
-  };
-
-  return (
-    <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
-        {editing ? (
-          <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }}>
-            <input autoFocus value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              placeholder="Location name" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1, minWidth: 100 }} />
-            <input type="time" value={draft.shiftStart} onChange={(e) => setDraft((d) => ({ ...d, shiftStart: e.target.value }))}
-              style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 100 }} />
-            <input type="number" min="0" value={draft.graceMinutes} onChange={(e) => setDraft((d) => ({ ...d, graceMinutes: e.target.value }))}
-              placeholder="Grace min" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 80 }} />
-          </div>
-        ) : (
-          <span style={{ flex: 1 }}>
-            {loc.name}
-            <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>· shift {loc.shiftStart || "09:00"} · {loc.graceMinutes ?? 0} min grace</span>
-          </span>
-        )}
-        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-          {editing ? (
-            <button onClick={save} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Save</button>
-          ) : (
-            <button onClick={() => { setDraft({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 }); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>
-          )}
-          <button onClick={() => setConfirmingRemove((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
-        </div>
-      </div>
-      {confirmingRemove && (
-        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{loc.name}" and its {myRouters.length} router{myRouters.length === 1 ? "" : "s"}? This can't be undone.</span>
-          <button onClick={() => { onRemove(loc.id); setConfirmingRemove(false); }} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, delete</button>
-          <button onClick={() => setConfirmingRemove(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Cancel</button>
-        </div>
-      )}
-      <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
-        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>Routers ({myRouters.length})</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-          {myRouters.map((r) => (
-            <span key={r.id} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: "var(--card)", border: "1px solid var(--line)", fontFamily: "'IBM Plex Mono', monospace", display: "flex", alignItems: "center", gap: 6 }}>
-              {r.ssid} · {r.bssid}
-              <span onClick={() => onRemoveRouter(r.id)} style={{ cursor: "pointer", color: "var(--rejected)", fontWeight: 700 }} title="Remove router">×</span>
-            </span>
-          ))}
-          <input value={newSsid} onChange={(e) => setNewSsid(e.target.value)} placeholder="SSID" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 90 }} />
-          <input value={newBssid} onChange={(e) => setNewBssid(e.target.value)} placeholder="BSSID (MAC address)" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 150 }} />
-          <button onClick={() => { if (newSsid.trim() && newBssid.trim()) { onAddRouter(loc.id, newSsid, newBssid); setNewSsid(""); setNewBssid(""); } }}
-            style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11 }}>+ Add router</button>
-        </div>
-        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginTop: 6 }}>Manual entry for now — the Android app will get a scan-and-detect option later.</div>
-      </div>
-    </div>
-  );
-}
-
 function RoleButtons({ role, onChange, disabled }) {
   const roles = [
     { id: "staff", label: "Staff" },
@@ -1132,7 +977,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
+function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onToggleActive }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1171,19 +1016,6 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
           </label>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 6 }}>
-          Location
-          <select value={s.locationId || ""} onChange={(e) => onSetLocation(s.uid, e.target.value)} style={{ ...smallSelect, fontSize: 11.5 }}>
-            <option value="">None assigned</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </label>
-        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={!!s.remoteCheckInAllowed} onChange={(e) => onToggleRemote(s.uid, e.target.checked)} />
-          Remote check-in allowed
-        </label>
-      </div>
       {role === "admin" && (
         <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
           <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.04em" }}>
@@ -1214,10 +1046,32 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
   );
 }
 
-function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, tags, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount }) {
+function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive }) {
   const [newCat, setNewCat] = useState("");
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffPin, setNewStaffPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
   const [catSearch, setCatSearch] = useState("");
   const [tagSearch, setTagSearch] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+
+  const createStaff = async () => {
+    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
+      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
+    }
+    setBusy(true); setMsg("");
+    try {
+      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
+      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
+      setMsg("Staff login created.");
+    } catch (err) {
+      setMsg("Could not create login: " + err.message);
+    }
+    setBusy(false);
+  };
 
   const catQ = catSearch.trim().toLowerCase();
   const filteredCategories = categories.filter((c) => c.name.toLowerCase().includes(catQ));
@@ -1226,6 +1080,12 @@ function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRename
   const tagsWithCount = tags.map((t) => ({ ...t, count: tagUsageCount(t.name) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   const filteredTags = tagsWithCount.filter((t) => t.name.toLowerCase().includes(tagQ));
+
+  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
+  const staffQ = staffSearch.trim().toLowerCase();
+  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
+  const activeStaff = filteredStaff.filter((s) => s.active !== false);
+  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1277,68 +1137,7 @@ function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRename
           ))}
         </div>
       </CollapsibleCard>
-    </div>
-  );
-}
 
-function AttendanceSettings({ locations, routers, onAddLocation, onUpdateLocation, onRemoveLocation, onAddRouter, onRemoveRouter }) {
-  const [newLocName, setNewLocName] = useState("");
-  const [newLocShift, setNewLocShift] = useState("09:00");
-  const [newLocGrace, setNewLocGrace] = useState("15");
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <CollapsibleCard storageKey="locations" title="Locations"
-        subtitle="Each location has its own shift start time, grace period, and registered WiFi routers (used by the Android app for auto check-in — coming separately).">
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <input value={newLocName} onChange={(e) => setNewLocName(e.target.value)} placeholder="Location name" style={{ ...inputStyle, flex: 1, minWidth: 120 }} />
-          <input type="time" value={newLocShift} onChange={(e) => setNewLocShift(e.target.value)} style={{ ...inputStyle, width: 120 }} />
-          <input type="number" min="0" value={newLocGrace} onChange={(e) => setNewLocGrace(e.target.value)} placeholder="Grace min" style={{ ...inputStyle, width: 100 }} />
-          <button onClick={() => { onAddLocation(newLocName, newLocShift, newLocGrace); setNewLocName(""); setNewLocShift("09:00"); setNewLocGrace("15"); }} style={ghostBtn}>Add</button>
-        </div>
-        <div style={{ display: "grid", gap: 2 }}>
-          {locations.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No locations yet — add one above.</div>}
-          {locations.map((loc) => (
-            <LocationRow key={loc.id} loc={loc} routers={routers} onUpdate={onUpdateLocation} onRemove={onRemoveLocation} onAddRouter={onAddRouter} onRemoveRouter={onRemoveRouter} />
-          ))}
-        </div>
-      </CollapsibleCard>
-    </div>
-  );
-}
-
-function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
-  const [newStaffName, setNewStaffName] = useState("");
-  const [newStaffEmail, setNewStaffEmail] = useState("");
-  const [newStaffPin, setNewStaffPin] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [staffSearch, setStaffSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
-
-  const createStaff = async () => {
-    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
-      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
-    }
-    setBusy(true); setMsg("");
-    try {
-      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
-      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
-      setMsg("Staff login created.");
-    } catch (err) {
-      setMsg("Could not create login: " + err.message);
-    }
-    setBusy(false);
-  };
-
-  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
-  const staffQ = staffSearch.trim().toLowerCase();
-  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
-  const activeStaff = filteredStaff.filter((s) => s.active !== false);
-  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
@@ -1350,21 +1149,21 @@ function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, o
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including this Manage tab. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Staff has no admin access. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1373,200 +1172,6 @@ function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, o
 }
 
 // ---------- Main App ----------
-function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
-  const [selDate, setSelDate] = useState(localDateKey());
-  const pending = allAttendance.filter((a) => a.status === "awaiting_checkin");
-  const dayRecords = allAttendance.filter((a) => a.date === selDate);
-  const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
-  const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      {pending.length > 0 && (
-        <Card>
-          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Pending check-in requests ({pending.length})</div>
-          <div style={{ display: "grid", gap: 10 }}>
-            {pending.map((a) => {
-              const s = staffMap[a.staffUid] || {};
-              return (
-                <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
-                    {a.requestNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>"{a.requestNote}"</div>}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => onApproveRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
-                    <button onClick={() => onRejectRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-      <Card>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>Team attendance</div>
-          <input type="date" value={selDate} onChange={(e) => setSelDate(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
-        </div>
-        <div style={{ display: "grid", gap: 2 }}>
-          {staffList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
-          {staffList.map((s) => {
-            const rec = dayRecords.find((a) => a.staffUid === s.uid);
-            const status = rec ? rec.status : "absent";
-            return (
-              <div key={s.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
-                <div>
-                  <span>{s.name}</span>
-                  <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{locName(s.locationId)}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
-                  <StatusBadge status={status} metaMap={ATT_STATUS_META} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, dateFormat }) {
-  const [note, setNote] = useState("");
-  const [requesting, setRequesting] = useState(false);
-  const [halfDayToggle, setHalfDayToggle] = useState(false);
-  const dateKey = localDateKey();
-  const today = myAttendance.find((a) => a.date === dateKey);
-  const canSelfCheckIn = !!me.remoteCheckInAllowed;
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <Card style={{ maxWidth: 480 }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Attendance</div>
-        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>{location ? location.name : "No location assigned"}</div>
-
-        {!today && (
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Not checked in yet</div>
-            {canSelfCheckIn ? (
-              <button onClick={onCheckIn} disabled={attBusy}
-                style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
-                {attBusy ? "Getting your location…" : "Check in"}
-              </button>
-            ) : requesting ? (
-              <div style={{ display: "grid", gap: 8 }}>
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (e.g. WiFi is down)" style={inputStyle} />
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => { onRequestCheckIn(note); setRequesting(false); setNote(""); }} disabled={attBusy} style={{ ...ghostBtn, flex: 1 }}>{attBusy ? "Sending…" : "Send request"}</button>
-                  <button onClick={() => setRequesting(false)} style={ghostBtn}>Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setRequesting(true)} style={ghostBtn}>Request check-in</button>
-            )}
-            {attError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 8 }}>{attError}</div>}
-          </div>
-        )}
-
-        {today && today.status === "awaiting_checkin" && (
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Check-in request sent</div>
-            {today.requestNote && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 8, fontStyle: "italic" }}>"{today.requestNote}"</div>}
-            <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>Waiting for an admin to check you in.</div>
-            <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
-          </div>
-        )}
-
-        {today && today.checkInTime && !today.checkOutTime && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>Checked in at {fmtTimeLabel(today.checkInTime)}</div>
-              <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
-            </div>
-            {today.checkedInBy && today.checkedInBy !== "self" && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Checked in by {today.checkedInBy}</div>}
-            <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
-              <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
-            </label>
-            <button onClick={() => onCheckOut(halfDayToggle)} disabled={attBusy} style={{ ...ghostBtn, width: "100%" }}>{attBusy ? "Checking out…" : "Check out"}</button>
-          </div>
-        )}
-
-        {today && today.checkInTime && today.checkOutTime && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtTimeLabel(today.checkInTime)} – {fmtTimeLabel(today.checkOutTime)}</div>
-            <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
-          </div>
-        )}
-      </Card>
-
-      <Card style={{ maxWidth: 480 }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent history</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {myAttendance.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No attendance recorded yet.</div>}
-          {myAttendance.slice(0, 14).map((a) => (
-            <div key={a.date} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtDate(a.date, dateFormat)}</div>
-                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
-                  {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
-                </div>
-              </div>
-              <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-// Text wordmark for now — swap the placeholder block below for an <img src="logo.png" .../>
-// once the real logo file is added to the repo. Kept as one component so that's a one-line change.
-function Logo({ large }) {
-  return (
-    <div>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: large ? 13 : 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
-      {large && <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 28, marginTop: 4 }}>Staff Portal</div>}
-    </div>
-  );
-}
-
-function HomeCard({ label, sub, onClick, accent }) {
-  return (
-    <button onClick={onClick} style={{
-      display: "block", width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit",
-      background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "28px 24px",
-    }}>
-      <div style={{ width: 40, height: 4, background: accent, borderRadius: 2, marginBottom: 18 }} />
-      <div style={{ fontFamily: "'Lora', serif", fontSize: 20, fontWeight: 600, marginBottom: 6 }}>{label}</div>
-      {sub && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{sub}</div>}
-    </button>
-  );
-}
-
-function HomeScreen({ me, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterPeople, onSignOut }) {
-  return (
-    <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
-        <button onClick={onSignOut} style={ghostBtn}>Sign out</button>
-      </div>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: isMobile ? "20px 20px 40px" : "20px 20px 60px", textAlign: "center" }}>
-        <Logo large />
-        <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 34px" }}>Hi, {me.name}</div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
-          <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
-          <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
-        </div>
-        {isSuperAdmin && (
-          <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function MainApp({ user }) {
   const isMobile = useIsMobile();
   const [dateFormat, setDateFormat] = useState(() => { try { return localStorage.getItem("mp-date-format") || "AD"; } catch (e) { return "AD"; } });
@@ -1580,23 +1185,10 @@ function MainApp({ user }) {
   const [tags, setTags] = useState([]);
   const [myExpenses, setMyExpenses] = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
-  const [locations, setLocations] = useState([]);
-  const [routers, setRouters] = useState([]);
-  const [myAttendance, setMyAttendance] = useState([]);
-  const [allAttendance, setAllAttendance] = useState([]);
-  const [attBusy, setAttBusy] = useState(false);
-  const [attError, setAttError] = useState("");
-  const [section, setSection] = useState("home");
   const [tab, setTab] = useState("add");
   const [toast, setToast] = useState("");
-  const [editingExpense, setEditingExpense] = useState(null);
-  const [editReturnTab, setEditReturnTab] = useState("mine");
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
-
-  useEffect(() => {
-    if ((tab !== "add" || section !== "expense") && editingExpense) setEditingExpense(null);
-  }, [tab, section]);
 
   useEffect(() => {
     const ref = db.ref("staff");
@@ -1616,25 +1208,6 @@ function MainApp({ user }) {
   useEffect(() => {
     const ref = db.ref("expenses/" + user.uid);
     const cb = (snap) => setMyExpenses(objToArr(snap.val()));
-    ref.on("value", cb);
-    return () => ref.off("value", cb);
-  }, [user.uid]);
-
-  useEffect(() => {
-    const locRef = db.ref("locations"), routerRef = db.ref("routers");
-    const c1 = (snap) => setLocations(objToArr(snap.val()));
-    const c2 = (snap) => setRouters(objToArr(snap.val()));
-    locRef.on("value", c1); routerRef.on("value", c2);
-    return () => { locRef.off("value", c1); routerRef.off("value", c2); };
-  }, []);
-
-  useEffect(() => {
-    const ref = db.ref("attendance/" + user.uid);
-    const cb = (snap) => {
-      const arr = objToArr(snap.val()).map((r) => ({ ...r, date: r.id }));
-      arr.sort((a, b) => (a.date < b.date ? 1 : -1));
-      setMyAttendance(arr);
-    };
     ref.on("value", cb);
     return () => ref.off("value", cb);
   }, [user.uid]);
@@ -1660,21 +1233,6 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [isAdmin]);
 
-  useEffect(() => {
-    if (!isAdmin) { setAllAttendance([]); return; }
-    const ref = db.ref("attendance");
-    const cb = (snap) => {
-      const all = snap.val() || {};
-      const out = [];
-      Object.entries(all).forEach(([uid, days]) => {
-        Object.entries(days || {}).forEach(([date, val]) => out.push({ date, staffUid: uid, ...val }));
-      });
-      setAllAttendance(out);
-    };
-    ref.on("value", cb);
-    return () => ref.off("value", cb);
-  }, [isAdmin]);
-
   if (staffMap === null) return <div style={{ padding: 60, textAlign: "center", color: "var(--ink-soft)" }}>Loading…</div>;
   if (!me) return <NoProfileScreen email={user.email} />;
 
@@ -1691,31 +1249,7 @@ function MainApp({ user }) {
     flash("Expense submitted.");
   };
 
-  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn and deleted."); };
-
-  const startEditOwn = (expense) => { setEditingExpense({ ...expense, staffUid: user.uid, editKind: "own" }); setEditReturnTab("mine"); setSection("expense"); setTab("add"); };
-  const startEditAsAdmin = (expense) => { setEditingExpense({ ...expense, editKind: "admin" }); setEditReturnTab("overview"); setSection("expense"); setTab("add"); };
-  const cancelEdit = () => { setEditingExpense(null); setSection("expense"); setTab(editReturnTab); };
-
-  const updateExpense = async (editing, form) => {
-    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
-    const amount = itemsTotal(cleanItems);
-    const updates = { date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), receipt: form.receipt || null };
-    if (editing.editKind === "own") {
-      updates.status = "Pending";
-      updates.submittedAt = new Date().toISOString();
-    } else {
-      updates.lastEditedBy = me.name;
-      updates.lastEditedAt = new Date().toISOString();
-    }
-    await db.ref(`expenses/${editing.staffUid}/${editing.id}`).update(updates);
-    const existingTagNames = tags.map((t) => t.name);
-    const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
-    newTagNames.forEach((t) => db.ref("tags").push({ name: t }));
-    flash(editing.editKind === "own" ? "Claim updated and resubmitted for review." : "Transaction updated.");
-    setEditingExpense(null);
-    setTab(editReturnTab);
-  };
+  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn."); };
 
   const review = async (staffUid, expenseId, status, note) => {
     const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
@@ -1850,90 +1384,6 @@ function MainApp({ user }) {
   };
   const toggleActive = (uid, val) => db.ref("staff/" + uid + "/active").set(val);
 
-  const addLocation = (name, shiftStart, graceMinutes) => {
-    const clean = (name || "").trim();
-    if (!clean) return;
-    db.ref("locations").push({ name: clean, shiftStart: shiftStart || "09:00", graceMinutes: Number(graceMinutes) || 0 });
-  };
-  const updateLocation = (id, fields) => db.ref("locations/" + id).update(fields);
-  const removeLocation = async (id) => {
-    const updates = { [`locations/${id}`]: null };
-    routers.filter((r) => r.locationId === id).forEach((r) => { updates[`routers/${r.id}`] = null; });
-    await db.ref().update(updates);
-    flash("Location removed.");
-  };
-  const addRouter = (locationId, ssid, bssid) => db.ref("routers").push({ locationId, ssid: ssid.trim(), bssid: bssid.trim() });
-  const removeRouter = (id) => db.ref("routers/" + id).remove();
-  const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
-  const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
-
-  const locationsMap = Object.fromEntries(locations.map((l) => [l.id, l]));
-
-  const checkIn = async () => {
-    setAttBusy(true); setAttError("");
-    try {
-      const geo = await getGeoPosition();
-      const now = new Date();
-      const dateKey = localDateKey(now);
-      const loc = me.locationId ? locationsMap[me.locationId] : null;
-      const status = computeAttStatus(localTimeStr(now), loc);
-      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
-        checkInTime: now.toISOString(), checkOutTime: null, method: "gps_remote",
-        geoLat: geo.lat, geoLng: geo.lng, locationId: me.locationId || null, status, checkedInBy: "self",
-      });
-      flash("Checked in.");
-    } catch (err) {
-      setAttError(err.message || "Couldn't check in.");
-    }
-    setAttBusy(false);
-  };
-
-  const requestCheckIn = async (note) => {
-    setAttBusy(true); setAttError("");
-    try {
-      let geo = null;
-      try { geo = await getGeoPosition(); } catch (e) { /* optional for a request */ }
-      const now = new Date();
-      const dateKey = localDateKey(now);
-      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
-        checkInTime: null, checkOutTime: null, method: "admin_manual", status: "awaiting_checkin",
-        requestNote: (note || "").trim(), requestedAt: now.toISOString(),
-        geoLat: geo ? geo.lat : null, geoLng: geo ? geo.lng : null, locationId: me.locationId || null, checkedInBy: null,
-      });
-      flash("Check-in request sent.");
-    } catch (err) {
-      setAttError(err.message || "Couldn't send the request.");
-    }
-    setAttBusy(false);
-  };
-
-  const cancelCheckInRequest = async () => {
-    await db.ref(`attendance/${user.uid}/${localDateKey()}`).remove();
-    flash("Request withdrawn.");
-  };
-
-  const checkOut = async (halfDay) => {
-    setAttBusy(true);
-    const updates = { checkOutTime: new Date().toISOString() };
-    if (halfDay) updates.status = "half_day";
-    await db.ref(`attendance/${user.uid}/${localDateKey()}`).update(updates);
-    flash(halfDay ? "Checked out — marked half day." : "Checked out.");
-    setAttBusy(false);
-  };
-
-  const approveCheckInRequest = async (staffUid, dateKey) => {
-    const staffRec = staffMap[staffUid];
-    const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
-    const now = new Date();
-    const status = computeAttStatus(localTimeStr(now), loc);
-    await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: now.toISOString(), status, checkedInBy: me.name });
-    flash("Check-in approved.");
-  };
-  const rejectCheckInRequest = async (staffUid, dateKey) => {
-    await db.ref(`attendance/${staffUid}/${dateKey}`).remove();
-    flash("Request rejected.");
-  };
-
   const exportCSV = (rows) => {
     const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
@@ -1953,41 +1403,20 @@ function MainApp({ user }) {
   const visibleCategories = isSuperAdmin ? sortedCategories : sortedCategories.filter((c) => me && me.allowedCategories && me.allowedCategories[safeKey(c.name)]);
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
-  const expenseTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "expenseSettings", label: "Categories & Tags" }]
+  const primaryTabs = isSuperAdmin
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
     : isAdmin
     ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
-    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
-
-  const attendanceTabs = isSuperAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }, { id: "attendanceSettings", label: "Locations" }]
-    : isAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }]
-    : [{ id: "attendance", label: "My Attendance" }];
-
-  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : [];
-
-  const goHome = () => setSection("home");
-  const enterExpense = () => { setSection("expense"); setTab("add"); };
-  const enterAttendance = () => { setSection("attendance"); setTab("attendance"); };
-  const enterPeople = () => setSection("people");
-
-  if (section === "home") {
-    return (
-      <HomeScreen me={me} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
-        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterPeople={enterPeople}
-        onSignOut={() => auth.signOut()} />
-    );
-  }
-
-  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : "Staff & permissions";
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }];
+  const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
+  const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
       <div style={{ padding: isMobile ? "16px 16px 14px" : "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
-        <div onClick={goHome} style={{ cursor: "pointer" }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>← MY POWER</div>
-          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>{sectionLabel}</div>
+        <div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
+          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>Expense Ledger</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
@@ -1999,66 +1428,50 @@ function MainApp({ user }) {
             ))}
           </div>
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isSuperAdmin ? " · Super Admin" : isAdmin ? " · Admin" : ""}</span>
-          <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+          {isAdmin ? (
+            <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
+          ) : (
+            <MoreMenu items={[
+              ...moreTabs.map((t) => ({ label: t.label, onClick: () => setTab(t.id) })),
+              { label: "Sign out", danger: true, onClick: () => auth.signOut() },
+            ]} />
+          )}
         </div>
       </div>
 
-      {section !== "people" && (
-        <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)", overflowX: "auto" }}>
-          {sectionTabs.map((it) => (
-            <button key={it.id} onClick={() => setTab(it.id)} style={{
-              padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600, whiteSpace: "nowrap",
-              color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
-            }}>{it.label}</button>
-          ))}
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
+        {primaryTabs.map((it) => (
+          <button key={it.id} onClick={() => setTab(it.id)} style={{
+            padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600,
+            color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
+          }}>{it.label}</button>
+        ))}
+      </div>
 
       <div style={{ padding: isMobile ? "16px 16px" : "20px 28px" }}>
-        {section === "expense" && tab === "add" && (
-          <AddExpense key={editingExpense ? "edit-" + editingExpense.id : "new"}
-            categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
-            editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
+        {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
         )}
-        {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
-        {section === "expense" && tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
-        {section === "expense" && tab === "overview" && isAdmin && (
+        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} dateFormat={dateFormat} />}
+        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} dateFormat={dateFormat} />}
+        {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
+        {tab === "overview" && isAdmin && (
           <div>
             {!isSuperAdmin && (
               <div style={{ background: "var(--paper-dark)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>
                 You have access to {visibleCategories.length} of {sortedCategories.length} categories. Totals, charts, and exports below reflect only what you're permitted to see.
               </div>
             )}
-            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
+            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />
           </div>
         )}
-        {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
-          <ExpenseSettings
-            categories={sortedCategories} onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
+        {tab === "manage" && isSuperAdmin && (
+          <Manage
+            categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
+            onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
             onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
-            tags={tags} onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
-          />
-        )}
-
-        {section === "attendance" && tab === "attendance" && (
-          <AttendanceTab
-            me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
-            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
-            attBusy={attBusy} attError={attError} dateFormat={dateFormat}
-          />
-        )}
-        {section === "attendance" && tab === "team" && isAdmin && (
-          <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
-        )}
-        {section === "attendance" && tab === "attendanceSettings" && isSuperAdmin && (
-          <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
-        )}
-
-        {section === "people" && isSuperAdmin && (
-          <PeopleManage
-            staffMap={staffMap} myUid={user.uid} categories={sortedCategories} locations={locations}
+            onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
-            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
           />
         )}
       </div>
