@@ -235,6 +235,12 @@ function MoreMenu({ items }) {
   );
 }
 
+function MapLink({ lat, lng, label }) {
+  if (lat == null || lng == null) return null;
+  const url = `https://www.google.com/maps?q=${lat},${lng}`;
+  return <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--paid)", textDecoration: "underline" }}>{label || "View on map"}</a>;
+}
+
 function StatusBadge({ status, metaMap }) {
   const map = metaMap || STATUS_META;
   const meta = map[status] || { color: "var(--ink-soft)", label: status };
@@ -1309,16 +1315,19 @@ function AttendanceSettings({ locations, routers, onAddLocation, onUpdateLocatio
 }
 
 // ---------- Staff profile fields, labels, and change-diffing (for the audit history log) ----------
-const PROFILE_FIELDS = ["staffCode", "phone", "designation", "joinDate", "department", "employmentType", "emergencyName", "emergencyPhone", "bloodGroup", "tempAddress", "permanentAddress", "photo"];
+const PROFILE_FIELDS = ["name", "staffCode", "phone", "designation", "joinDate", "department", "employmentType", "emergencyName", "emergencyPhone", "bloodGroup", "dob", "tempAddress", "permanentAddress", "photo"];
 const PROFILE_LABELS = {
-  staffCode: "Staff code", phone: "Phone", designation: "Designation", joinDate: "Date of joining",
+  name: "Full name", staffCode: "Staff code", phone: "Phone", designation: "Designation", joinDate: "Date of joining",
   department: "Department", employmentType: "Employment type", emergencyName: "Emergency contact name",
-  emergencyPhone: "Emergency contact phone", bloodGroup: "Blood group", tempAddress: "Temporary address",
+  emergencyPhone: "Emergency contact phone", bloodGroup: "Blood group", dob: "Date of birth", tempAddress: "Temporary address",
   permanentAddress: "Permanent address", photo: "Photo",
 };
-const SENSITIVE_FIELDS = ["bankName", "bankAccount", "citizenshipNumber", "panNumber", "citizenshipImage", "panImage"];
+// Fields only a Super Admin or Admin sets — not editable from the employee's own profile form.
+const ADMIN_PROFILE_FIELDS = ["staffCode", "designation", "department"];
+const ADMIN_PROFILE_LABELS = { staffCode: "Staff code", designation: "Designation", department: "Department" };
+const SENSITIVE_FIELDS = ["bankName", "branchName", "bankAccount", "citizenshipNumber", "panNumber", "citizenshipImage", "panImage"];
 const SENSITIVE_LABELS = {
-  bankName: "Bank name", bankAccount: "Bank account number", citizenshipNumber: "Citizenship number",
+  bankName: "Bank name", branchName: "Branch name", bankAccount: "Bank account number", citizenshipNumber: "Citizenship number",
   panNumber: "PAN number", citizenshipImage: "Citizenship document", panImage: "PAN document",
 };
 function diffFields(oldObj, newObj, fields, labels) {
@@ -1334,7 +1343,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1342,6 +1351,11 @@ function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, o
   const [msg, setMsg] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  const [newDept, setNewDept] = useState("");
+  const [newDesig, setNewDesig] = useState("");
+
+  const deptUsage = (name) => Object.values(allProfiles || {}).filter((p) => p.department === name).length;
+  const desigUsage = (name) => Object.values(allProfiles || {}).filter((p) => p.designation === name).length;
 
   const createStaff = async () => {
     if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
@@ -1366,6 +1380,38 @@ function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, o
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
+      <CollapsibleCard storageKey="departments" title="Departments" subtitle="Shown as a dropdown when an admin sets someone's department in their Profile.">
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Department name" style={{ ...inputStyle, flex: 1 }}
+            onKeyDown={(e) => { if (e.key === "Enter") { onAddDepartment(newDept); setNewDept(""); } }} />
+          <button onClick={() => { onAddDepartment(newDept); setNewDept(""); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {departments.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No departments yet — add one above.</div>}
+          {departments.map((d) => {
+            const count = deptUsage(d.name);
+            return <EditableRow key={d.id} name={d.name} meta={`· ${count} ${count === 1 ? "person" : "people"}`}
+              onRename={(n) => onRenameDepartment(d.id, d.name, n)} onRemove={() => onRemoveDepartment(d.id, d.name)} />;
+          })}
+        </div>
+      </CollapsibleCard>
+
+      <CollapsibleCard storageKey="designations" title="Designations" subtitle="Job titles shown as a dropdown when an admin sets someone's designation in their Profile.">
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={newDesig} onChange={(e) => setNewDesig(e.target.value)} placeholder="Designation name" style={{ ...inputStyle, flex: 1 }}
+            onKeyDown={(e) => { if (e.key === "Enter") { onAddDesignation(newDesig); setNewDesig(""); } }} />
+          <button onClick={() => { onAddDesignation(newDesig); setNewDesig(""); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {designations.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No designations yet — add one above.</div>}
+          {designations.map((d) => {
+            const count = desigUsage(d.name);
+            return <EditableRow key={d.id} name={d.name} meta={`· ${count} ${count === 1 ? "person" : "people"}`}
+              onRename={(n) => onRenameDesignation(d.id, d.name, n)} onRemove={() => onRemoveDesignation(d.id, d.name)} />;
+          })}
+        </div>
+      </CollapsibleCard>
+
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
@@ -1420,6 +1466,7 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
                   <div>
                     <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
                     {a.requestNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>"{a.requestNote}"</div>}
+                    <MapLink lat={a.geoLat} lng={a.geoLng} label="View their location" />
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => onApproveRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
@@ -1442,15 +1489,23 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
             const rec = dayRecords.find((a) => a.staffUid === s.uid);
             const status = rec ? rec.status : "absent";
             return (
-              <div key={s.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
-                <div>
-                  <span>{s.name}</span>
-                  <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{locName(s.locationId)}</span>
+              <div key={s.uid} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
+                  <div>
+                    <span>{s.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{locName(s.locationId)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
+                    <StatusBadge status={status} metaMap={ATT_STATUS_META} />
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
-                  <StatusBadge status={status} metaMap={ATT_STATUS_META} />
-                </div>
+                {rec && (rec.geoLat != null || rec.checkOutGeoLat != null) && (
+                  <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                    <MapLink lat={rec.geoLat} lng={rec.geoLng} label="View check-in location" />
+                    <MapLink lat={rec.checkOutGeoLat} lng={rec.checkOutGeoLng} label="View check-out location" />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1513,6 +1568,7 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
               <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
             </div>
             {today.checkedInBy && today.checkedInBy !== "self" && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Checked in by {today.checkedInBy}</div>}
+            <MapLink lat={today.geoLat} lng={today.geoLng} label="View my check-in location" />
             <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
               <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
             </label>
@@ -1539,6 +1595,12 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
                 <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
                   {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
                 </div>
+                {(a.geoLat != null || a.checkOutGeoLat != null) && (
+                  <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+                    <MapLink lat={a.geoLat} lng={a.geoLng} label="Check-in location" />
+                    <MapLink lat={a.checkOutGeoLat} lng={a.checkOutGeoLng} label="Check-out location" />
+                  </div>
+                )}
               </div>
               <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
             </div>
@@ -1571,22 +1633,27 @@ function HomeCard({ label, sub, onClick, accent }) {
 function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onSignOut }) {
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
+  const photo = myProfile && myProfile.photo;
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
+        <button onClick={onEnterProfile} title="Your profile" style={{ position: "relative", border: "none", background: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}>
+          {photo ? (
+            <img src={photo} alt="Your profile" style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--card)", border: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontFamily: "'Lora', serif", color: "var(--ink-soft)" }}>{(me.name || "?")[0]}</div>
+          )}
+          {profilePending && <span style={{ position: "absolute", top: -1, right: -1, width: 10, height: 10, borderRadius: "50%", background: "var(--rejected)", border: "2px solid var(--paper)" }} />}
+        </button>
         <button onClick={onSignOut} style={ghostBtn}>Sign out</button>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: isMobile ? "20px 20px 40px" : "20px 20px 60px", textAlign: "center" }}>
         <Logo large />
-        <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 34px" }}>Hi, {me.name}</div>
+        <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 4px" }}>Hi, {me.name}</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 34, maxWidth: 380 }}>Log an expense, mark your attendance, or tap your photo up top to fill in or check your profile.</div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
           <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
           <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
-          <div style={{ gridColumn: isMobile ? "auto" : "1 / -1" }}>
-            <HomeCard label={profilePending ? "Complete your profile" : "Your profile"}
-              sub={profilePending ? "Fill this in once — it locks after you submit." : "Submitted — request an edit if something needs to change."}
-              accent="var(--paid)" onClick={onEnterProfile} />
-          </div>
         </div>
         {isSuperAdmin && (
           <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
@@ -1613,11 +1680,10 @@ function ProfileFieldsForm({ form, setForm, onPhoto, photoBusy }) {
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Staff code"><input value={form.staffCode} onChange={set("staffCode")} placeholder="MP-014" style={inputStyle} /></Field>
+        <div style={{ gridColumn: "1 / -1" }}><Field label="Full name"><input value={form.name} onChange={set("name")} style={inputStyle} /></Field></div>
         <Field label="Phone"><input value={form.phone} onChange={set("phone")} placeholder="98XXXXXXXX" style={inputStyle} /></Field>
-        <Field label="Designation"><input value={form.designation} onChange={set("designation")} placeholder="Sales Executive" style={inputStyle} /></Field>
+        <Field label="Date of birth"><input type="date" value={form.dob} onChange={set("dob")} style={inputStyle} /></Field>
         <Field label="Date of joining"><input type="date" value={form.joinDate} onChange={set("joinDate")} style={inputStyle} /></Field>
-        <Field label="Department"><input value={form.department} onChange={set("department")} placeholder="Sales" style={inputStyle} /></Field>
         <Field label="Employment type">
           <select value={form.employmentType} onChange={set("employmentType")} style={inputStyle}>
             <option>Full-time</option><option>Part-time</option><option>Contract</option>
@@ -1638,6 +1704,29 @@ function ProfileFieldsForm({ form, setForm, onPhoto, photoBusy }) {
   );
 }
 
+// Admin/Super Admin-only fields — designation and department are picked from master
+// lists (managed in People → Departments/Designations) so they stay consistent company-wide.
+function AdminOnlyFieldsForm({ form, setForm, departments, designations }) {
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <Field label="Staff code"><input value={form.staffCode} onChange={set("staffCode")} placeholder="MP-014" style={inputStyle} /></Field>
+      <Field label="Designation">
+        <select value={form.designation} onChange={set("designation")} style={inputStyle}>
+          <option value="">— Select —</option>
+          {designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Department">
+        <select value={form.department} onChange={set("department")} style={inputStyle}>
+          <option value="">— Select —</option>
+          {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+        </select>
+      </Field>
+    </div>
+  );
+}
+
 function SensitiveFieldsForm({ form, setForm, onDoc, docBusy }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const docRow = (label, field, imgField) => (
@@ -1653,26 +1742,28 @@ function SensitiveFieldsForm({ form, setForm, onDoc, docBusy }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
       <Field label="Bank name"><input value={form.bankName} onChange={set("bankName")} style={inputStyle} /></Field>
+      <Field label="Branch name"><input value={form.branchName} onChange={set("branchName")} style={inputStyle} /></Field>
       <Field label="Bank account number"><input value={form.bankAccount} onChange={set("bankAccount")} style={inputStyle} /></Field>
+      <div />
       {docRow("Citizenship number", "citizenshipNumber", "citizenshipImage")}
       {docRow("PAN number", "panNumber", "panImage")}
     </div>
   );
 }
 
-function buildProfileForm(profile) {
+function buildProfileForm(profile, currentName) {
   const p = profile || {};
   return {
-    staffCode: p.staffCode || "", phone: p.phone || "", designation: p.designation || "", joinDate: p.joinDate || "",
+    name: p.name || currentName || "", staffCode: p.staffCode || "", phone: p.phone || "", designation: p.designation || "", joinDate: p.joinDate || "",
     department: p.department || "", employmentType: p.employmentType || "Full-time",
-    emergencyName: p.emergencyName || "", emergencyPhone: p.emergencyPhone || "", bloodGroup: p.bloodGroup || "",
+    emergencyName: p.emergencyName || "", emergencyPhone: p.emergencyPhone || "", bloodGroup: p.bloodGroup || "", dob: p.dob || "",
     tempAddress: p.tempAddress || "", permanentAddress: p.permanentAddress || "", photo: p.photo || null,
   };
 }
 function buildSensitiveForm(sensitive) {
   const s = sensitive || {};
   return {
-    bankName: s.bankName || "", bankAccount: s.bankAccount || "", citizenshipNumber: s.citizenshipNumber || "",
+    bankName: s.bankName || "", branchName: s.branchName || "", bankAccount: s.bankAccount || "", citizenshipNumber: s.citizenshipNumber || "",
     panNumber: s.panNumber || "", citizenshipImage: s.citizenshipImage || null, panImage: s.panImage || null,
   };
 }
@@ -1682,10 +1773,33 @@ function readableValue(field, val) {
   return val;
 }
 
-function MyProfileForm({ profile, sensitive, onSaveDraft, onSubmit, onRequestEdit, onCancelRequest, busy }) {
+function AdminSetSummary({ profile }) {
+  const p = profile || {};
+  const hasAny = ADMIN_PROFILE_FIELDS.some((f) => p[f]);
+  return (
+    <Card>
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Employment details</div>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 14 }}>Set by an admin — not editable from here.</div>
+      {!hasAny ? (
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Not set yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, fontSize: 13 }}>
+          {ADMIN_PROFILE_FIELDS.map((f) => (
+            <div key={f}>
+              <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{ADMIN_PROFILE_LABELS[f]}</div>
+              <div>{p[f] || "—"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function MyProfileForm({ profile, sensitive, myName, onSaveDraft, onSubmit, onRequestEdit, onCancelRequest, busy }) {
   const status = (profile && profile.status) || "not_started";
   const locked = status === "submitted" || status === "edit_requested";
-  const [form, setForm] = useState(() => buildProfileForm(profile));
+  const [form, setForm] = useState(() => buildProfileForm(profile, myName));
   const [sensForm, setSensForm] = useState(() => buildSensitiveForm(sensitive));
   const [note, setNote] = useState("");
   const [requesting, setRequesting] = useState(false);
@@ -1719,7 +1833,7 @@ function MyProfileForm({ profile, sensitive, onSaveDraft, onSubmit, onRequestEdi
             {form.photo ? <img src={form.photo} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} /> : <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--paper-dark)" }} />}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
-            {PROFILE_FIELDS.filter((f) => f !== "photo").map((f) => (
+            {PROFILE_FIELDS.filter((f) => f !== "photo" && !ADMIN_PROFILE_FIELDS.includes(f)).map((f) => (
               <div key={f} style={f === "tempAddress" || f === "permanentAddress" ? { gridColumn: "1 / -1" } : {}}>
                 <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{PROFILE_LABELS[f]}</div>
                 <div>{form[f] || "—"}</div>
@@ -1740,17 +1854,21 @@ function MyProfileForm({ profile, sensitive, onSaveDraft, onSubmit, onRequestEdi
             )}
           </div>
         </Card>
+        <AdminSetSummary profile={profile} />
       </div>
     );
   }
 
   if (status === "edit_requested") {
     return (
-      <Card style={{ maxWidth: 480 }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Edit request sent</div>
-        <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 14 }}>Waiting for an admin to unlock your profile before you can make changes.</div>
-        <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
-      </Card>
+      <div style={{ display: "grid", gap: 20, maxWidth: 620 }}>
+        <Card>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Edit request sent</div>
+          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 14 }}>Waiting for an admin to unlock your profile before you can make changes.</div>
+          <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
+        </Card>
+        <AdminSetSummary profile={profile} />
+      </div>
     );
   }
 
@@ -1761,6 +1879,7 @@ function MyProfileForm({ profile, sensitive, onSaveDraft, onSubmit, onRequestEdi
         <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 16 }}>Fill this in once — after you submit, it locks so it can't be changed by accident. Need to fix something later? You can request an edit.</div>
         <ProfileFieldsForm form={form} setForm={setForm} onPhoto={handlePhoto} photoBusy={photoBusy} />
       </Card>
+      <AdminSetSummary profile={profile} />
       <Card style={{ borderColor: "var(--pending)" }}>
         <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Documents</div>
         <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Bank and ID details — only Super Admins can see this section, stored separately and more tightly locked than the rest of your profile.</div>
@@ -1789,8 +1908,8 @@ function ProfileHistoryList({ history }) {
   );
 }
 
-function ProfileAdminDetail({ uid, s, profile, sensitive, isSuperAdmin, myName, onSave, onSaveSensitive, onApproveEdit, onBack, loadHistory }) {
-  const [form, setForm] = useState(() => buildProfileForm(profile));
+function ProfileAdminDetail({ uid, s, profile, sensitive, isSuperAdmin, myName, departments, designations, onSave, onSaveSensitive, onApproveEdit, onBack, loadHistory }) {
+  const [form, setForm] = useState(() => buildProfileForm(profile, s.name));
   const [sensForm, setSensForm] = useState(() => buildSensitiveForm(sensitive));
   const [photoBusy, setPhotoBusy] = useState(false);
   const [docBusy, setDocBusy] = useState(null);
@@ -1831,6 +1950,10 @@ function ProfileAdminDetail({ uid, s, profile, sensitive, isSuperAdmin, myName, 
         {profile && profile.editRequestNote && status === "edit_requested" && (
           <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, fontStyle: "italic" }}>Reason: "{profile.editRequestNote}"</div>
         )}
+        <div style={{ marginBottom: 18, paddingBottom: 18, borderBottom: "1px solid var(--line)" }}>
+          <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.04em" }}>Employment details — set by admin</div>
+          <AdminOnlyFieldsForm form={form} setForm={setForm} departments={departments} designations={designations} />
+        </div>
         <ProfileFieldsForm form={form} setForm={setForm} onPhoto={handlePhoto} photoBusy={photoBusy} />
         <button onClick={async () => { setSaving(true); await onSave(uid, form, myName); setSaving(false); }} disabled={saving} style={{ ...ghostBtn, marginTop: 14 }}>{saving ? "Saving…" : "Save changes"}</button>
       </Card>
@@ -1854,14 +1977,15 @@ function ProfileAdminDetail({ uid, s, profile, sensitive, isSuperAdmin, myName, 
   );
 }
 
-function StaffProfilesAdmin({ staffMap, profiles, sensitiveMap, isSuperAdmin, myName, onSave, onSaveSensitive, onApproveEdit, loadHistory }) {
+function StaffProfilesAdmin({ staffMap, profiles, sensitiveMap, departments, designations, isSuperAdmin, myName, onSave, onSaveSensitive, onApproveEdit, loadHistory }) {
   const [openUid, setOpenUid] = useState(null);
   const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
 
   if (openUid) {
     return (
       <ProfileAdminDetail uid={openUid} s={staffMap[openUid]} profile={profiles[openUid]} sensitive={sensitiveMap[openUid]}
-        isSuperAdmin={isSuperAdmin} myName={myName} onSave={onSave} onSaveSensitive={onSaveSensitive} onApproveEdit={onApproveEdit}
+        isSuperAdmin={isSuperAdmin} myName={myName} departments={departments} designations={designations}
+        onSave={onSave} onSaveSensitive={onSaveSensitive} onApproveEdit={onApproveEdit}
         onBack={() => setOpenUid(null)} loadHistory={loadHistory} />
     );
   }
@@ -1876,7 +2000,7 @@ function StaffProfilesAdmin({ staffMap, profiles, sensitiveMap, isSuperAdmin, my
           return (
             <div key={s.uid} onClick={() => setOpenUid(s.uid)}
               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", cursor: "pointer", fontSize: 13.5 }}>
-              <span>{s.name}</span>
+              <span>{s.name}{p && p.designation ? <span style={{ color: "var(--ink-soft)", fontSize: 12 }}> · {p.designation}</span> : ""}</span>
               {status === "submitted" && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--approved)", color: "#fff", textTransform: "uppercase" }}>Submitted</span>}
               {status === "edit_requested" && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--pending)", color: "#fff", textTransform: "uppercase" }}>Edit requested</span>}
               {(status === "not_started" || status === "draft") && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--rejected)" }}>Profile submission pending</span>}
@@ -1906,6 +2030,8 @@ function MainApp({ user }) {
   const [myExpenses, setMyExpenses] = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [routers, setRouters] = useState([]);
   const [myAttendance, setMyAttendance] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
@@ -1952,6 +2078,14 @@ function MainApp({ user }) {
     const c2 = (snap) => setRouters(objToArr(snap.val()));
     locRef.on("value", c1); routerRef.on("value", c2);
     return () => { locRef.off("value", c1); routerRef.off("value", c2); };
+  }, []);
+
+  useEffect(() => {
+    const depRef = db.ref("departments"), desRef = db.ref("designations");
+    const c1 = (snap) => setDepartments(objToArr(snap.val()));
+    const c2 = (snap) => setDesignations(objToArr(snap.val()));
+    depRef.on("value", c1); desRef.on("value", c2);
+    return () => { depRef.off("value", c1); desRef.off("value", c2); };
   }, []);
 
   useEffect(() => {
@@ -2222,9 +2356,41 @@ function MainApp({ user }) {
   const removeRouter = (id) => db.ref("routers/" + id).remove();
   const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
   const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
+
+  const addDepartment = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("departments").push({ name: clean }); };
+  const renameDepartment = async (id, oldName, newName) => {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    const updates = { [`departments/${id}/name`]: clean };
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === oldName) updates[`staffProfile/${uid}/department`] = clean; });
+    await db.ref().update(updates);
+    flash(`Renamed to "${clean}".`);
+  };
+  const removeDepartment = async (id, name) => {
+    const updates = { [`departments/${id}`]: null };
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === name) updates[`staffProfile/${uid}/department`] = null; });
+    await db.ref().update(updates);
+    flash("Department removed.");
+  };
+  const addDesignation = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("designations").push({ name: clean }); };
+  const renameDesignation = async (id, oldName, newName) => {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    const updates = { [`designations/${id}/name`]: clean };
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.designation === oldName) updates[`staffProfile/${uid}/designation`] = clean; });
+    await db.ref().update(updates);
+    flash(`Renamed to "${clean}".`);
+  };
+  const removeDesignation = async (id, name) => {
+    const updates = { [`designations/${id}`]: null };
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.designation === name) updates[`staffProfile/${uid}/designation`] = null; });
+    await db.ref().update(updates);
+    flash("Designation removed.");
+  };
   const saveMyProfileDraft = async (fields, sensFields) => {
     setProfileBusy(true);
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "draft" });
+    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     setProfileBusy(false);
     flash("Draft saved.");
@@ -2234,6 +2400,7 @@ function MainApp({ user }) {
     const changes = diffFields(myProfile || {}, fields, PROFILE_FIELDS, PROFILE_LABELS)
       .concat(diffFields(mySensitive || {}, sensFields, SENSITIVE_FIELDS, SENSITIVE_LABELS));
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "submitted", submittedAt: new Date().toISOString() });
+    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     if (changes.length) await db.ref("profileHistory/" + user.uid).push({ timestamp: new Date().toISOString(), changedBy: "self", changes });
     setProfileBusy(false);
@@ -2256,6 +2423,8 @@ function MainApp({ user }) {
   const adminSaveProfile = async (uid, fields, changerName) => {
     const changes = diffFields(allProfiles[uid] || {}, fields, PROFILE_FIELDS, PROFILE_LABELS);
     await db.ref("staffProfile/" + uid).update({ ...fields, lastEditedBy: changerName, lastEditedAt: new Date().toISOString() });
+    const currentName = staffMap[uid] && staffMap[uid].name;
+    if (fields.name && fields.name.trim() && fields.name.trim() !== currentName) await db.ref("staff/" + uid + "/name").set(fields.name.trim());
     if (changes.length) await db.ref("profileHistory/" + uid).push({ timestamp: new Date().toISOString(), changedBy: changerName, changes });
     flash("Profile updated.");
   };
@@ -2320,6 +2489,11 @@ function MainApp({ user }) {
     setAttBusy(true);
     const updates = { checkOutTime: new Date().toISOString() };
     if (halfDay) updates.status = "half_day";
+    try {
+      const geo = await getGeoPosition();
+      updates.checkOutGeoLat = geo.lat;
+      updates.checkOutGeoLng = geo.lng;
+    } catch (err) { /* don't block checkout if location isn't available */ }
     await db.ref(`attendance/${user.uid}/${localDateKey()}`).update(updates);
     flash(halfDay ? "Checked out — marked half day." : "Checked out.");
     setAttBusy(false);
@@ -2467,20 +2641,24 @@ function MainApp({ user }) {
         )}
 
         {section === "profile" && tab === "myProfile" && (
-          <MyProfileForm profile={myProfile} sensitive={mySensitive}
+          <MyProfileForm profile={myProfile} sensitive={mySensitive} myName={me.name}
             onSaveDraft={saveMyProfileDraft} onSubmit={submitMyProfile} onRequestEdit={requestProfileEdit} onCancelRequest={cancelProfileEditRequest}
             busy={profileBusy} />
         )}
         {section === "profile" && tab === "staffProfiles" && isAdmin && (
           <StaffProfilesAdmin staffMap={staffMap} profiles={allProfiles} sensitiveMap={staffSensitiveMap} isSuperAdmin={isSuperAdmin} myName={me.name}
+            departments={departments} designations={designations}
             onSave={adminSaveProfile} onSaveSensitive={adminSaveSensitive} onApproveEdit={approveProfileEdit} loadHistory={loadProfileHistory} />
         )}
 
         {section === "people" && isSuperAdmin && (
           <PeopleManage
-            staffMap={staffMap} myUid={user.uid} categories={sortedCategories} locations={locations}
+            staffMap={staffMap} allProfiles={allProfiles} myUid={user.uid} categories={sortedCategories} locations={locations}
+            departments={departments} designations={designations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
+            onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment}
+            onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
         )}
       </div>
