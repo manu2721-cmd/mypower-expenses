@@ -1133,7 +1133,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onEditProfile }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1148,35 +1148,24 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
   return (
     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {s.photo ? (
-            <img src={s.photo} alt="" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)", flexShrink: 0 }} />
-          ) : (
-            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--paper-dark)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontFamily: "'Lora', serif", color: "var(--ink-soft)", flexShrink: 0 }}>{(s.name || "?")[0]}</div>
-          )}
-          <div>
-            <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}
-              {s.designation && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}> · {s.designation}</span>}
-              {s.staffCode && <span style={{ fontSize: 11, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}> · {s.staffCode}</span>}
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-              {s.email ? (
-                <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
-                  style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-                  {copied === "email" ? "Copied!" : s.email}
-                </span>
-              ) : (
-                <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
-              )}
-              <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
+        <div>
+          <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+            {s.email ? (
+              <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
                 style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-                {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
+                {copied === "email" ? "Copied!" : s.email}
               </span>
-            </div>
+            ) : (
+              <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
+            )}
+            <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
+              style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+              {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
+            </span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={() => onEditProfile(s.uid)} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11.5 }}>Edit profile</button>
           <RoleButtons role={role} onChange={(r) => onSetRole(s.uid, r)} disabled={isMe} />
           <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
             <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(s.uid, e.target.checked)} disabled={isMe} /> Active
@@ -1319,100 +1308,33 @@ function AttendanceSettings({ locations, routers, onAddLocation, onUpdateLocatio
   );
 }
 
-function StaffProfileEditor({ uid, s, sensitive, onSaveProfile, onSaveSensitive, onBack }) {
-  const [form, setForm] = useState({
-    staffCode: s.staffCode || "", phone: s.phone || "", designation: s.designation || "", joinDate: s.joinDate || "",
-    department: s.department || "", employmentType: s.employmentType || "Full-time",
-    emergencyName: s.emergencyName || "", emergencyPhone: s.emergencyPhone || "", bloodGroup: s.bloodGroup || "",
-    photo: s.photo || null,
+// ---------- Staff profile fields, labels, and change-diffing (for the audit history log) ----------
+const PROFILE_FIELDS = ["staffCode", "phone", "designation", "joinDate", "department", "employmentType", "emergencyName", "emergencyPhone", "bloodGroup", "tempAddress", "permanentAddress", "photo"];
+const PROFILE_LABELS = {
+  staffCode: "Staff code", phone: "Phone", designation: "Designation", joinDate: "Date of joining",
+  department: "Department", employmentType: "Employment type", emergencyName: "Emergency contact name",
+  emergencyPhone: "Emergency contact phone", bloodGroup: "Blood group", tempAddress: "Temporary address",
+  permanentAddress: "Permanent address", photo: "Photo",
+};
+const SENSITIVE_FIELDS = ["bankName", "bankAccount", "citizenshipNumber", "panNumber", "citizenshipImage", "panImage"];
+const SENSITIVE_LABELS = {
+  bankName: "Bank name", bankAccount: "Bank account number", citizenshipNumber: "Citizenship number",
+  panNumber: "PAN number", citizenshipImage: "Citizenship document", panImage: "PAN document",
+};
+function diffFields(oldObj, newObj, fields, labels) {
+  const changes = [];
+  fields.forEach((f) => {
+    const before = (oldObj && oldObj[f]) || "";
+    const after = (newObj && newObj[f]) || "";
+    if (before !== after) {
+      const isImage = typeof after === "string" && after.startsWith("data:image");
+      changes.push({ field: f, label: labels[f] || f, from: isImage ? (before ? "(previous file)" : "") : before, to: isImage ? (after ? "(new file uploaded)" : "") : after });
+    }
   });
-  const [sensitiveForm, setSensitiveForm] = useState({
-    bankName: (sensitive && sensitive.bankName) || "", bankAccount: (sensitive && sensitive.bankAccount) || "",
-    citizenshipNumber: (sensitive && sensitive.citizenshipNumber) || "", panNumber: (sensitive && sensitive.panNumber) || "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
-
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const setSens = (k) => (e) => setSensitiveForm((f) => ({ ...f, [k]: e.target.value }));
-
-  const handlePhoto = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setPhotoBusy(true);
-    try {
-      const dataUrl = await resizeImageFile(file, 300, 0.7);
-      setForm((f) => ({ ...f, photo: dataUrl }));
-    } catch (err) { /* leave photo unchanged on failure */ }
-    setPhotoBusy(false);
-    e.target.value = "";
-  };
-
-  const save = async () => {
-    setSaving(true);
-    await onSaveProfile(uid, form);
-    await onSaveSensitive(uid, sensitiveForm);
-    setSaving(false);
-    onBack();
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <button onClick={onBack} style={{ ...ghostBtn, width: "fit-content" }}>← Back to staff list</button>
-
-      <Card>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{s.name}'s profile</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Core identity, employment, and emergency contact details.</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
-          {form.photo ? (
-            <img src={form.photo} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} />
-          ) : (
-            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--paper-dark)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontFamily: "'Lora', serif", color: "var(--ink-soft)" }}>{(s.name || "?")[0]}</div>
-          )}
-          <div>
-            <input type="file" accept="image/*" onChange={handlePhoto} disabled={photoBusy} style={{ fontSize: 12.5 }} />
-            {photoBusy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4 }}>Processing photo…</div>}
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Staff code"><input value={form.staffCode} onChange={set("staffCode")} placeholder="MP-014" style={inputStyle} /></Field>
-          <Field label="Phone"><input value={form.phone} onChange={set("phone")} placeholder="98XXXXXXXX" style={inputStyle} /></Field>
-          <Field label="Designation"><input value={form.designation} onChange={set("designation")} placeholder="Sales Executive" style={inputStyle} /></Field>
-          <Field label="Date of joining"><input type="date" value={form.joinDate} onChange={set("joinDate")} style={inputStyle} /></Field>
-          <Field label="Department"><input value={form.department} onChange={set("department")} placeholder="Sales" style={inputStyle} /></Field>
-          <Field label="Employment type">
-            <select value={form.employmentType} onChange={set("employmentType")} style={inputStyle}>
-              <option>Full-time</option><option>Part-time</option><option>Contract</option>
-            </select>
-          </Field>
-          <Field label="Emergency contact name"><input value={form.emergencyName} onChange={set("emergencyName")} style={inputStyle} /></Field>
-          <Field label="Emergency contact phone"><input value={form.emergencyPhone} onChange={set("emergencyPhone")} style={inputStyle} /></Field>
-          <Field label="Blood group">
-            <select value={form.bloodGroup} onChange={set("bloodGroup")} style={inputStyle}>
-              <option value="">—</option>
-              {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((bg) => <option key={bg}>{bg}</option>)}
-            </select>
-          </Field>
-        </div>
-      </Card>
-
-      <Card style={{ borderColor: "var(--pending)" }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sensitive documents</div>
-        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Only Super Admins can see this section — it's stored in a separate, more tightly locked part of the database from the rest of the profile.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Bank name"><input value={sensitiveForm.bankName} onChange={setSens("bankName")} style={inputStyle} /></Field>
-          <Field label="Bank account number"><input value={sensitiveForm.bankAccount} onChange={setSens("bankAccount")} style={inputStyle} /></Field>
-          <Field label="Citizenship number"><input value={sensitiveForm.citizenshipNumber} onChange={setSens("citizenshipNumber")} style={inputStyle} /></Field>
-          <Field label="PAN number"><input value={sensitiveForm.panNumber} onChange={setSens("panNumber")} style={inputStyle} /></Field>
-        </div>
-      </Card>
-
-      <button onClick={save} disabled={saving} style={{ ...ghostBtn, justifySelf: "start", padding: "10px 22px" }}>{saving ? "Saving…" : "Save profile"}</button>
-    </div>
-  );
+  return changes;
 }
 
-function PeopleManage({ staffMap, staffSensitiveMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSaveProfile, onSaveSensitive }) {
+function PeopleManage({ staffMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1420,7 +1342,6 @@ function PeopleManage({ staffMap, staffSensitiveMap, myUid, categories, location
   const [msg, setMsg] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
-  const [editingProfileUid, setEditingProfileUid] = useState(null);
 
   const createStaff = async () => {
     if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
@@ -1443,14 +1364,6 @@ function PeopleManage({ staffMap, staffSensitiveMap, myUid, categories, location
   const activeStaff = filteredStaff.filter((s) => s.active !== false);
   const inactiveStaff = filteredStaff.filter((s) => s.active === false);
 
-  if (editingProfileUid) {
-    const s = { uid: editingProfileUid, ...staffMap[editingProfileUid] };
-    return (
-      <StaffProfileEditor uid={editingProfileUid} s={s} sensitive={staffSensitiveMap[editingProfileUid]}
-        onSaveProfile={onSaveProfile} onSaveSensitive={onSaveSensitive} onBack={() => setEditingProfileUid(null)} />
-    );
-  }
-
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
@@ -1464,21 +1377,21 @@ function PeopleManage({ staffMap, staffSensitiveMap, myUid, categories, location
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Personal profile details now live in their own Profile section, not here. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onEditProfile={setEditingProfileUid} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onEditProfile={setEditingProfileUid} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1655,7 +1568,9 @@ function HomeCard({ label, sub, onClick, accent }) {
   );
 }
 
-function HomeScreen({ me, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterPeople, onSignOut }) {
+function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onSignOut }) {
+  const profileStatus = (myProfile && myProfile.status) || "not_started";
+  const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
@@ -1667,12 +1582,309 @@ function HomeScreen({ me, isSuperAdmin, isMobile, onEnterExpense, onEnterAttenda
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
           <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
           <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
+          <div style={{ gridColumn: isMobile ? "auto" : "1 / -1" }}>
+            <HomeCard label={profilePending ? "Complete your profile" : "Your profile"}
+              sub={profilePending ? "Fill this in once — it locks after you submit." : "Submitted — request an edit if something needs to change."}
+              accent="var(--paid)" onClick={onEnterProfile} />
+          </div>
         </div>
         {isSuperAdmin && (
           <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
         )}
       </div>
     </div>
+  );
+}
+
+// ---------- Employee profile (self-service, with lock + edit-request workflow) ----------
+function ProfileFieldsForm({ form, setForm, onPhoto, photoBusy }) {
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+        {form.photo ? (
+          <img src={form.photo} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} />
+        ) : (
+          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--paper-dark)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "var(--ink-soft)" }}>?</div>
+        )}
+        <div>
+          <input type="file" accept="image/*" onChange={onPhoto} disabled={photoBusy} style={{ fontSize: 12.5 }} />
+          {photoBusy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4 }}>Processing photo…</div>}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Staff code"><input value={form.staffCode} onChange={set("staffCode")} placeholder="MP-014" style={inputStyle} /></Field>
+        <Field label="Phone"><input value={form.phone} onChange={set("phone")} placeholder="98XXXXXXXX" style={inputStyle} /></Field>
+        <Field label="Designation"><input value={form.designation} onChange={set("designation")} placeholder="Sales Executive" style={inputStyle} /></Field>
+        <Field label="Date of joining"><input type="date" value={form.joinDate} onChange={set("joinDate")} style={inputStyle} /></Field>
+        <Field label="Department"><input value={form.department} onChange={set("department")} placeholder="Sales" style={inputStyle} /></Field>
+        <Field label="Employment type">
+          <select value={form.employmentType} onChange={set("employmentType")} style={inputStyle}>
+            <option>Full-time</option><option>Part-time</option><option>Contract</option>
+          </select>
+        </Field>
+        <Field label="Emergency contact name"><input value={form.emergencyName} onChange={set("emergencyName")} style={inputStyle} /></Field>
+        <Field label="Emergency contact phone"><input value={form.emergencyPhone} onChange={set("emergencyPhone")} style={inputStyle} /></Field>
+        <Field label="Blood group">
+          <select value={form.bloodGroup} onChange={set("bloodGroup")} style={inputStyle}>
+            <option value="">—</option>
+            {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((bg) => <option key={bg}>{bg}</option>)}
+          </select>
+        </Field>
+        <div style={{ gridColumn: "1 / -1" }}><Field label="Temporary address"><input value={form.tempAddress} onChange={set("tempAddress")} placeholder="Where you currently live" style={inputStyle} /></Field></div>
+        <div style={{ gridColumn: "1 / -1" }}><Field label="Permanent address"><input value={form.permanentAddress} onChange={set("permanentAddress")} placeholder="Home / ancestral address" style={inputStyle} /></Field></div>
+      </div>
+    </div>
+  );
+}
+
+function SensitiveFieldsForm({ form, setForm, onDoc, docBusy }) {
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const docRow = (label, field, imgField) => (
+    <div>
+      <Field label={label}><input value={form[field]} onChange={set(field)} style={inputStyle} /></Field>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+        {form[imgField] && <img src={form[imgField]} alt="" style={{ width: 46, height: 46, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />}
+        <input type="file" accept="image/*" onChange={(e) => onDoc(e, imgField)} disabled={docBusy === imgField} style={{ fontSize: 11.5 }} />
+        {docBusy === imgField && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>Processing…</span>}
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <Field label="Bank name"><input value={form.bankName} onChange={set("bankName")} style={inputStyle} /></Field>
+      <Field label="Bank account number"><input value={form.bankAccount} onChange={set("bankAccount")} style={inputStyle} /></Field>
+      {docRow("Citizenship number", "citizenshipNumber", "citizenshipImage")}
+      {docRow("PAN number", "panNumber", "panImage")}
+    </div>
+  );
+}
+
+function buildProfileForm(profile) {
+  const p = profile || {};
+  return {
+    staffCode: p.staffCode || "", phone: p.phone || "", designation: p.designation || "", joinDate: p.joinDate || "",
+    department: p.department || "", employmentType: p.employmentType || "Full-time",
+    emergencyName: p.emergencyName || "", emergencyPhone: p.emergencyPhone || "", bloodGroup: p.bloodGroup || "",
+    tempAddress: p.tempAddress || "", permanentAddress: p.permanentAddress || "", photo: p.photo || null,
+  };
+}
+function buildSensitiveForm(sensitive) {
+  const s = sensitive || {};
+  return {
+    bankName: s.bankName || "", bankAccount: s.bankAccount || "", citizenshipNumber: s.citizenshipNumber || "",
+    panNumber: s.panNumber || "", citizenshipImage: s.citizenshipImage || null, panImage: s.panImage || null,
+  };
+}
+function readableValue(field, val) {
+  if (!val) return "—";
+  if (field === "photo" || field === "citizenshipImage" || field === "panImage") return null; // rendered as image instead
+  return val;
+}
+
+function MyProfileForm({ profile, sensitive, onSaveDraft, onSubmit, onRequestEdit, onCancelRequest, busy }) {
+  const status = (profile && profile.status) || "not_started";
+  const locked = status === "submitted" || status === "edit_requested";
+  const [form, setForm] = useState(() => buildProfileForm(profile));
+  const [sensForm, setSensForm] = useState(() => buildSensitiveForm(sensitive));
+  const [note, setNote] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [docBusy, setDocBusy] = useState(null);
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    try { const dataUrl = await resizeImageFile(file, 300, 0.7); setForm((f) => ({ ...f, photo: dataUrl })); } catch (err) {}
+    setPhotoBusy(false); e.target.value = "";
+  };
+  const handleDoc = async (e, imgField) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setDocBusy(imgField);
+    try { const dataUrl = await resizeImageFile(file, 900, 0.6); setSensForm((f) => ({ ...f, [imgField]: dataUrl })); } catch (err) {}
+    setDocBusy(null); e.target.value = "";
+  };
+
+  if (locked) {
+    return (
+      <div style={{ display: "grid", gap: 20, maxWidth: 620 }}>
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600 }}>Your profile</div>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--approved)", color: "#fff", textTransform: "uppercase" }}>Submitted</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+            {form.photo ? <img src={form.photo} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} /> : <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--paper-dark)" }} />}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
+            {PROFILE_FIELDS.filter((f) => f !== "photo").map((f) => (
+              <div key={f} style={f === "tempAddress" || f === "permanentAddress" ? { gridColumn: "1 / -1" } : {}}>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{PROFILE_LABELS[f]}</div>
+                <div>{form[f] || "—"}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 18 }}>
+            {!requesting ? (
+              <button onClick={() => setRequesting(true)} style={ghostBtn}>Request to edit</button>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why do you need to make changes?" style={inputStyle} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { onRequestEdit(note); setRequesting(false); setNote(""); }} disabled={busy} style={{ ...ghostBtn, flex: 1 }}>{busy ? "Sending…" : "Send request"}</button>
+                  <button onClick={() => setRequesting(false)} style={ghostBtn}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (status === "edit_requested") {
+    return (
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Edit request sent</div>
+        <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 14 }}>Waiting for an admin to unlock your profile before you can make changes.</div>
+        <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 20, maxWidth: 620 }}>
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Your profile</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 16 }}>Fill this in once — after you submit, it locks so it can't be changed by accident. Need to fix something later? You can request an edit.</div>
+        <ProfileFieldsForm form={form} setForm={setForm} onPhoto={handlePhoto} photoBusy={photoBusy} />
+      </Card>
+      <Card style={{ borderColor: "var(--pending)" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Documents</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Bank and ID details — only Super Admins can see this section, stored separately and more tightly locked than the rest of your profile.</div>
+        <SensitiveFieldsForm form={sensForm} setForm={setSensForm} onDoc={handleDoc} docBusy={docBusy} />
+      </Card>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => onSaveDraft(form, sensForm)} disabled={busy} style={ghostBtn}>{busy ? "Saving…" : "Save draft"}</button>
+        <button onClick={() => onSubmit(form, sensForm)} disabled={busy} style={{ ...ghostBtn, background: "var(--brand-yellow)", fontWeight: 600 }}>{busy ? "Submitting…" : "Submit"}</button>
+      </div>
+    </div>
+  );
+}
+
+function ProfileHistoryList({ history }) {
+  if (!history) return <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Loading…</div>;
+  if (history.length === 0) return <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>No changes recorded yet.</div>;
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {history.map((h) => (
+        <div key={h.id} style={{ fontSize: 12, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
+          <div style={{ color: "var(--ink-soft)", marginBottom: 3 }}>{new Date(h.timestamp).toLocaleString()} · by {h.changedBy}</div>
+          {h.changes.map((c, i) => <div key={i}>{c.label}: <span style={{ color: "var(--ink-soft)" }}>"{c.from || "—"}"</span> → "{c.to || "—"}"</div>)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileAdminDetail({ uid, s, profile, sensitive, isSuperAdmin, myName, onSave, onSaveSensitive, onApproveEdit, onBack, loadHistory }) {
+  const [form, setForm] = useState(() => buildProfileForm(profile));
+  const [sensForm, setSensForm] = useState(() => buildSensitiveForm(sensitive));
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [docBusy, setDocBusy] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    try { const dataUrl = await resizeImageFile(file, 300, 0.7); setForm((f) => ({ ...f, photo: dataUrl })); } catch (err) {}
+    setPhotoBusy(false); e.target.value = "";
+  };
+  const handleDoc = async (e, imgField) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setDocBusy(imgField);
+    try { const dataUrl = await resizeImageFile(file, 900, 0.6); setSensForm((f) => ({ ...f, [imgField]: dataUrl })); } catch (err) {}
+    setDocBusy(null); e.target.value = "";
+  };
+  const toggleHistory = async () => {
+    if (!showHistory && history === null) setHistory(await loadHistory(uid));
+    setShowHistory((v) => !v);
+  };
+
+  const status = (profile && profile.status) || "not_started";
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <button onClick={onBack} style={{ ...ghostBtn, width: "fit-content" }}>← Back to staff profiles</button>
+
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>{s.name}</div>
+          {status === "edit_requested" && <button onClick={() => onApproveEdit(uid)} style={{ ...ghostBtn, borderColor: "var(--approved)", color: "var(--approved)" }}>Unlock for editing</button>}
+        </div>
+        {profile && profile.editRequestNote && status === "edit_requested" && (
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12, fontStyle: "italic" }}>Reason: "{profile.editRequestNote}"</div>
+        )}
+        <ProfileFieldsForm form={form} setForm={setForm} onPhoto={handlePhoto} photoBusy={photoBusy} />
+        <button onClick={async () => { setSaving(true); await onSave(uid, form, myName); setSaving(false); }} disabled={saving} style={{ ...ghostBtn, marginTop: 14 }}>{saving ? "Saving…" : "Save changes"}</button>
+      </Card>
+
+      {isSuperAdmin ? (
+        <Card style={{ borderColor: "var(--pending)" }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sensitive documents</div>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Only visible to Super Admins.</div>
+          <SensitiveFieldsForm form={sensForm} setForm={setSensForm} onDoc={handleDoc} docBusy={docBusy} />
+          <button onClick={async () => { setSaving(true); await onSaveSensitive(uid, sensForm, myName); setSaving(false); }} disabled={saving} style={{ ...ghostBtn, marginTop: 14 }}>{saving ? "Saving…" : "Save documents"}</button>
+        </Card>
+      ) : (
+        <Card><div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Sensitive documents (bank, citizenship, PAN) are visible to Super Admins only.</div></Card>
+      )}
+
+      <Card>
+        <button onClick={toggleHistory} style={ghostBtn}>{showHistory ? "Hide" : "Show"} change history</button>
+        {showHistory && <div style={{ marginTop: 12 }}><ProfileHistoryList history={history} /></div>}
+      </Card>
+    </div>
+  );
+}
+
+function StaffProfilesAdmin({ staffMap, profiles, sensitiveMap, isSuperAdmin, myName, onSave, onSaveSensitive, onApproveEdit, loadHistory }) {
+  const [openUid, setOpenUid] = useState(null);
+  const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+
+  if (openUid) {
+    return (
+      <ProfileAdminDetail uid={openUid} s={staffMap[openUid]} profile={profiles[openUid]} sensitive={sensitiveMap[openUid]}
+        isSuperAdmin={isSuperAdmin} myName={myName} onSave={onSave} onSaveSensitive={onSaveSensitive} onApproveEdit={onApproveEdit}
+        onBack={() => setOpenUid(null)} loadHistory={loadHistory} />
+    );
+  }
+
+  return (
+    <Card>
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Staff profiles</div>
+      <div style={{ display: "grid", gap: 2 }}>
+        {staffList.map((s) => {
+          const p = profiles[s.uid];
+          const status = (p && p.status) || "not_started";
+          return (
+            <div key={s.uid} onClick={() => setOpenUid(s.uid)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", cursor: "pointer", fontSize: 13.5 }}>
+              <span>{s.name}</span>
+              {status === "submitted" && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--approved)", color: "#fff", textTransform: "uppercase" }}>Submitted</span>}
+              {status === "edit_requested" && <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "var(--pending)", color: "#fff", textTransform: "uppercase" }}>Edit requested</span>}
+              {(status === "not_started" || status === "draft") && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--rejected)" }}>Profile submission pending</span>}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -1686,6 +1898,9 @@ function MainApp({ user }) {
   });
   const [staffMap, setStaffMap] = useState(null);
   const [staffSensitiveMap, setStaffSensitiveMap] = useState({});
+  const [myProfile, setMyProfile] = useState(null);
+  const [mySensitive, setMySensitive] = useState(null);
+  const [allProfiles, setAllProfiles] = useState({});
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
   const [myExpenses, setMyExpenses] = useState([]);
@@ -1695,6 +1910,7 @@ function MainApp({ user }) {
   const [myAttendance, setMyAttendance] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
   const [attBusy, setAttBusy] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
   const [attError, setAttError] = useState("");
   const [section, setSection] = useState("home");
   const [tab, setTab] = useState("add");
@@ -1792,6 +2008,28 @@ function MainApp({ user }) {
     ref.on("value", cb);
     return () => ref.off("value", cb);
   }, [isSuperAdmin]);
+
+  useEffect(() => {
+    const ref = db.ref("staffProfile/" + user.uid);
+    const cb = (snap) => setMyProfile(snap.val());
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
+  useEffect(() => {
+    const ref = db.ref("staffSensitive/" + user.uid);
+    const cb = (snap) => setMySensitive(snap.val());
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
+  useEffect(() => {
+    if (!isAdmin) { setAllProfiles({}); return; }
+    const ref = db.ref("staffProfile");
+    const cb = (snap) => setAllProfiles(snap.val() || {});
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
 
   if (staffMap === null) return <div style={{ padding: 60, textAlign: "center", color: "var(--ink-soft)" }}>Loading…</div>;
   if (!me) return <NoProfileScreen email={user.email} />;
@@ -1984,8 +2222,54 @@ function MainApp({ user }) {
   const removeRouter = (id) => db.ref("routers/" + id).remove();
   const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
   const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
-  const saveStaffProfile = (uid, fields) => db.ref("staff/" + uid).update(fields);
-  const saveStaffSensitive = (uid, fields) => db.ref("staffSensitive/" + uid).update(fields);
+  const saveMyProfileDraft = async (fields, sensFields) => {
+    setProfileBusy(true);
+    await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "draft" });
+    await db.ref("staffSensitive/" + user.uid).update(sensFields);
+    setProfileBusy(false);
+    flash("Draft saved.");
+  };
+  const submitMyProfile = async (fields, sensFields) => {
+    setProfileBusy(true);
+    const changes = diffFields(myProfile || {}, fields, PROFILE_FIELDS, PROFILE_LABELS)
+      .concat(diffFields(mySensitive || {}, sensFields, SENSITIVE_FIELDS, SENSITIVE_LABELS));
+    await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "submitted", submittedAt: new Date().toISOString() });
+    await db.ref("staffSensitive/" + user.uid).update(sensFields);
+    if (changes.length) await db.ref("profileHistory/" + user.uid).push({ timestamp: new Date().toISOString(), changedBy: "self", changes });
+    setProfileBusy(false);
+    flash("Profile submitted.");
+  };
+  const requestProfileEdit = async (note) => {
+    setProfileBusy(true);
+    await db.ref("staffProfile/" + user.uid).update({ status: "edit_requested", editRequestNote: (note || "").trim(), editRequestedAt: new Date().toISOString() });
+    setProfileBusy(false);
+    flash("Edit request sent.");
+  };
+  const cancelProfileEditRequest = async () => {
+    await db.ref("staffProfile/" + user.uid).update({ status: "submitted" });
+    flash("Request withdrawn.");
+  };
+  const approveProfileEdit = async (uid) => {
+    await db.ref("staffProfile/" + uid).update({ status: "draft" });
+    flash("Unlocked for editing.");
+  };
+  const adminSaveProfile = async (uid, fields, changerName) => {
+    const changes = diffFields(allProfiles[uid] || {}, fields, PROFILE_FIELDS, PROFILE_LABELS);
+    await db.ref("staffProfile/" + uid).update({ ...fields, lastEditedBy: changerName, lastEditedAt: new Date().toISOString() });
+    if (changes.length) await db.ref("profileHistory/" + uid).push({ timestamp: new Date().toISOString(), changedBy: changerName, changes });
+    flash("Profile updated.");
+  };
+  const adminSaveSensitive = async (uid, fields, changerName) => {
+    const changes = diffFields(staffSensitiveMap[uid] || {}, fields, SENSITIVE_FIELDS, SENSITIVE_LABELS);
+    await db.ref("staffSensitive/" + uid).update(fields);
+    if (changes.length) await db.ref("profileHistory/" + uid).push({ timestamp: new Date().toISOString(), changedBy: changerName, changes });
+    flash("Sensitive documents updated.");
+  };
+  const loadProfileHistory = async (uid) => {
+    const snap = await db.ref("profileHistory/" + uid).once("value");
+    const val = snap.val() || {};
+    return Object.entries(val).map(([id, h]) => ({ id, ...h })).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+  };
 
   const locationsMap = Object.fromEntries(locations.map((l) => [l.id, l]));
 
@@ -2085,22 +2369,27 @@ function MainApp({ user }) {
     ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }]
     : [{ id: "attendance", label: "My Attendance" }];
 
-  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : [];
+  const profileTabs = isAdmin
+    ? [{ id: "myProfile", label: "My Profile" }, { id: "staffProfiles", label: "Staff Profiles" }]
+    : [{ id: "myProfile", label: "My Profile" }];
+
+  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : section === "profile" ? profileTabs : [];
 
   const goHome = () => setSection("home");
   const enterExpense = () => { setSection("expense"); setTab("add"); };
   const enterAttendance = () => { setSection("attendance"); setTab("attendance"); };
+  const enterProfile = () => { setSection("profile"); setTab("myProfile"); };
   const enterPeople = () => setSection("people");
 
   if (section === "home") {
     return (
-      <HomeScreen me={me} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
-        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterPeople={enterPeople}
+      <HomeScreen me={me} myProfile={myProfile} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople}
         onSignOut={() => auth.signOut()} />
     );
   }
 
-  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : "Staff & permissions";
+  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : section === "profile" ? "Profile" : "Staff & permissions";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
@@ -2177,12 +2466,21 @@ function MainApp({ user }) {
           <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
         )}
 
+        {section === "profile" && tab === "myProfile" && (
+          <MyProfileForm profile={myProfile} sensitive={mySensitive}
+            onSaveDraft={saveMyProfileDraft} onSubmit={submitMyProfile} onRequestEdit={requestProfileEdit} onCancelRequest={cancelProfileEditRequest}
+            busy={profileBusy} />
+        )}
+        {section === "profile" && tab === "staffProfiles" && isAdmin && (
+          <StaffProfilesAdmin staffMap={staffMap} profiles={allProfiles} sensitiveMap={staffSensitiveMap} isSuperAdmin={isSuperAdmin} myName={me.name}
+            onSave={adminSaveProfile} onSaveSensitive={adminSaveSensitive} onApproveEdit={approveProfileEdit} loadHistory={loadProfileHistory} />
+        )}
+
         {section === "people" && isSuperAdmin && (
           <PeopleManage
-            staffMap={staffMap} staffSensitiveMap={staffSensitiveMap} myUid={user.uid} categories={sortedCategories} locations={locations}
+            staffMap={staffMap} myUid={user.uid} categories={sortedCategories} locations={locations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
-            onSaveProfile={saveStaffProfile} onSaveSensitive={saveStaffSensitive}
           />
         )}
       </div>
