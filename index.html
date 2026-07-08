@@ -54,11 +54,19 @@ const db = firebase.database();
 
 // ---------- helpers ----------
 const PAYMENT_MODES = ["Cash", "Personal Card", "Company Account", "Other"];
+const LOGO_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZYAAADiCAYAAABtPOH1AAAACXBIWXMAAAsSAAALEgHS3X78AAAgAElEQVR4nO2d63HjuBatF26d//ZEYE0E9kTQ7AhaHUGz6wYw6ghaHcGoA7g1dARjR9B0BEeOYKQIjhXBvj+waUEQ+AAJSpS9viqWbREkIZnC4n5gw4gICCHdMcZci8jLuftByFT5P+fuACGXhDFmBmBx5m4QMmkoLITEkZ27A4RMHQoLIXHMQHEhpBEKCyEtqPurIoMVF0JIDRQWQtq58/6+OUsvCLkQKCyEBDDGzIwxmf5551gtd7o/Oz6KEAJQWAipw7dSZvrzqmY/IUShsBASxheOa+/v7ET9IOTioLAQEibz/vaFxt9PCFEoLIR0oxKWZ/15ZYyhO4yQABQWQupx3V+ViLilXLLTdWWaaJLDwhhTGmPE216MMQ/GmPzc/SSnhcJCSD2uRXJjjLkGsHFem5+2O9PBGHNtjFkB+BfAXwA+wFpzjwB+AniCFeFPAP42xmwoMO8HCgsh3ckArJ2/P6jYHPGW3WT63tYA/gSwBfAVwG8icicicxFZiEgmIjMAv8MKzTWswDzUfWbk7UBhIaSeShxK/Zk5v1fUWS3ztygu+p5K2EmiPwHciUhRV+1ZRDYisoD9LJ9hLZiS4vK2MSybT8gx6ubJROROJ0P+ArAVkZkx5gX7+SzPInIkIMaYBwAvIpKfqs9jo5NE17Dv/av+vqpp/qL7XwA8iMhGz1EA+ALgUUTerSvxrUNhISSAxgP+FhGjf1dflD9gy+Z/cZr/ISJr7/gS9il99lbWbtH39AHANxFZOYLbxg5ALiIPep41gFsAX0WkGKe35JzQFUbeHZrJ1OamWmvbTP+u0oxzAA9e29D6LBvYJ/s3sXaLfg4fADyJiG+lPAP4GNi+6r4rAIXTfg4rNssx+0zOx3/O3QFCTo2IbIwxhRMvKHGYRgzsU4mrNtVTdi4iC2PMDnt32DywquRGfy6MMas3YLVUArkM7HsRkTJ0kFo5/8LO+8lEpKw+fwB/GmNyWi1vD1os5F2isY8SNrPpH1iXjrt916aZ/iz155W6ydyn9pBl8uDsWybq9jn5BBtPKmMO0tjKNrCr+vwYZ3mDUFjIu0Wzlf4AcN/Q7JP+LJ3Xljh07QDWMnnNdNKYS+U++9MYc7EDqOMOLHsee7TMgCM4mb+PXD4UFvKuEZG1iOQapP8DhzGCJwAwxsx1IKyE4gZ2QHQFKWSZuFZM0SGuM1Vm+nNds//aGJN5W66ZdZXlFrJ2Nti7E8kbgjEWQpRAZtcKNmA9hx0gC9hZ5oAVkTvdVw2Ofxpjiuo8IlIaY+5hM8iuYOdvZP51LoCZ/tzU7L9Fc3bYE8IurxL28yVvDFos5F3QNiFPn7Bn7muaHrsF8EWPL5zdN7AWiZ8h5f+9gFO4EsB/jTHLiK5PgbbEgy2AH7r9xD6msgPwWWfhh85xqRYcaYHCQt40mlpcoj1IvAawNsastezIg863qOIDCx0cXffXAlZs3OD0B2PMqwtMj8mwFxcA+F7VzrqQGeiVhZXV7N+IyFI3d5b9FawLcFZz3CW8d9IDCgt5szgzxe/aUlrVPTWDdXndwQbtb50muf5cOq9V8zNyHPKXG0+pEZcbAH8D+J9WBl5MWGQ2+rOTheG83y3sZ+TP+6ksyA/QOBZ5W1BYyFtmhZqBLYSIvOhT9ww2kO+6dW50zsUGh1bLB9gB94d3uoNii85gG8pA+wAbu9kYY5ZTExgng+tT177p+831z9uA+6+yIMvhPSRTg8JCLpYOg1ymP6MnJ2q22EJF5pu+XA36S9j4QcVfsOLlWySld86qdpgvQhVXsPNn1hPMIKtiR50rCWgW2KP++d1ziS31ZzGsW2SKUFjIxaGxiTXa4yaVoORDBmotYfIMDdjrE7wfpH+AfUJ3BedWZ5j751vCljup4wY2g2xK4lLAvrfvkf3Ksf9MCuA12+4GwM+qOCV5W7AIJbkY9In3ATb28S1Qs8pvX+CwWOQj6uditJFjH8j/XcuSVGVeKp5hn+j91Nv7UJVjp6RM3VyOrVpMk0Anef4DKxQzWBfgL9j6YVnDcTlsPAkA/h+A/1ud4w2UuiEBKCzkIvAG4caBzDnmGuNMwnsSkUz79F9v3z1sP//2X+8pLpOqAKyxku+wwhA1J0ez5f7qcyy5LOgKI5dCgf3gm3c5wAmY71qaxvLBGLPUgfGbt++LXvPodc3+OogL6Tmyhmvlw7qaFnXj/YAzJ6fDHKFMU74pKu8EWixk8jguGABAtUZKxPFtVkFfPurs+gKHLjdgn/3lv/4MWyHZn+VfPc377ERklCyxQEXmmGPnOBT7ys1Y6t/X2FcmqNyFT7DvfdOvx+RSoLCQyeO4XyqOFtYKHHOH/QS8DDYm4A/yQ9npuTewA+qtt79OXHYAln6MyFlI64BYIe2Cfj6LIStcqqWywGH8KcQjgKJa6Iu8fSgsZPLUxDKecZxGfIfTFzXcYj9xsMSxuDzB9vMTjjl4gq9bkbFOWBzx3MRYAY4Ft0gVv9HEihkOU7zXANYM0L8/KCzkInDWQOkjHCERAqylsfFeq1w4FV2KJD5jbxWVOO7js14nJC472Pe1EpEXY8wGh0//zyJykN6rArTCoYh97mIROKKy8c9LSCooLOSicNYGqSPq6b3D9Up0F5c5rDCVOBaXHWyqdJ07bgs7aTDz2jyKyOt8nYZYTGtqspeVdcdYBxkLCgt50zguGuA4+8rd57KGM7kSzfEDlyrmAtQnC2xhxaer5fU6X8ebDxLi95BYqJWyghVIZmWR0aGwkDeBWjIz7P38M3QXhJTsYAPaDwjHXKo2XYWlmoyZo1lUAM1SA14D63PdKhccRYWcBAoLuTjUCslgYyEZwoN3aqo4SRWDaROGe1jXVlUpoA/3IpJ3FJWKOtHaAphTVMgpoLCQyaNP35luc5zOEnmEtTpm6CdgW1hXWo74VOcd9sLZVVTqeIa1VJidRU4ChYVMErVK5rADayibaiyeYSf+bWAFIcW1H/V8f0Yc8xn2vcccE4KiQk4OhYVMBkdMcpzGveVyD+u2qsrij2EVPaFbhtk3pBHULWz2F0WFnBQKCzkrNUHmU3IPmzE1hw26n3qCpcsO1lrKMFxYGagnZ+M/5+4AeZ9oFlcOO6DXDeYx2VOxPGEf/yhHvE5XttqPHGn6UjSJihe3etHikoQkgRYLORk6mOWwlkGdq6mKcZSwLqnUVkwVUL+GtVTOkZLs8wibIJDa/XcPOydng301gQyHqdg/RaTzqpCEdIHCQkanKniI+syoSkwenLpZOYZnQ/n81OsscR63m09VRyzDeWqcLVgYkowBXWFkNFQcFgg/iT9CJxH6s8VHEJXKSplhGm6vJ1grIsPpLaYnWDdZceLrkncELRaSFM3synEYCN9hv1ZHWc0ODxxbZWQNTbF1edS+LJG+bH4s97AWyqnm4lSCCgCo+9wJSQ2FhSTDWZ8D2C/41Klsui4clTrm8QPqYsPp05crnvX6M5zBQhljLRdC2qCwkLOi2WFLdJvfEcNX7K2kU7u+HrEvYnmHYaL2hAF1zygs5BxQWMjJceauLJH+Cb5LheGxqNZ9SSGSldssx7D38JEuMHJqGLwnJ8PJDmuauzKEc4oKkMbdtsO++kDKWBMhJ4PCQkbFmbuSY9w4x7lFJRWVqJw70YCQ3lBYyChoMD7HaeaLVKKy0e1SReUeduJmnag8wcaNTlnhmZBoGGMhyXCywnI0D3xb2AGymhW+wT6eEOv+ea2JZYxZ43zZXyn4DBt3qnsPz9U69Q1LFPsEV5UkZEwoLGQwOndlifrYyRMa5rDo8X1Tgj+LyIMxZgnge4/jJ4OIGGNM2xfSXSWyVVyYFUbOAYWF9MaxUEJVgasy9GXTPBYdHJeB47vwVUQKTVn+1eP4sdkiwmXVUVgO1lcxxryg/rN7EpGs6/UJSQVjLKQXOpgXOBw4t9DleNsmRWqG2Ar9U3PvnbIkq57nGJtrRBSYVMutjVsAhTEm18+4SVhYMp+chf9z7g6Qy0OtjF/Yi8oW1nqYiUjRYqHMjDEFgP8iLCrPHbrwJCK505c+Swb/hLWqnmDjND473d+lP1X7J++1K9jkhRe9Xug6Lncd2kDPuVH3X5NFNFXBJW8cusJIFMaYFfYB9h2ApYi0DmAtbrMt9ssBrwL7XXYAZiLyoufctLR3r7HCvvhjXnNcZXWhQ19CfStgBcIXzR32cag6K+1ef6ZINaYbjJwPEeHGrdMGOxiLbiWA6w7HVIUlX5xjBXsRucN+bRTpsGXOuZcd2hfYC8m6pe0K+wrIXfpSt5WwArqpuUZTv+cDr330OXHjduqNFgvphGcd/JCWFQdrLJQn7AP6a22Xo7tlcHBdY8wG9a6ge+xFpW3J4R2s8GyQbnLlTq+b4dgCqZYMCL3vFFbLVkRmA44nZBCMsZCuVIPz1yZRMcZcq+9/DTuormBTZI2IZGLdZhtjzFKF4W90G8ifPVHJERaVewAf9fdfsCnIbaKSwVpN/+3Yly5cwb63DWxBTJdP2Je28WMqX2BFp0uspY5ywLGEDOfcJhO3y9hgB8i8Q7sZbAwktO8O1orw3WJt24t/TtjB13c/zfX8Mee9w6GLb4yt0Ov477sSX//1l5rXu27Lc98v3N73RlcYaaVavEta3F81x1aVjPtkb1V8EydBQPvzr/65wz42EuM+qiyVHKcp9ngP288Sh1bRM+xn8+C9XrkNu8yu9/ksXHKYnBEKCxkFrRU2x/AMp6PsJmfp4mdYSyq2HllVQXjR49gh1InLE6xV87fX/jP6LX7GUvnkrFBYSDKcZYlzpCmS+BPWrXMwL8YYU63IOEN8TOQZNisr9WqVXakqEvzjvf5Tf7rWU5X67AtOG7RYyFlh8J4MxhiT6aTHf2GD5UMH7GfYp+6F2Pkqubc/g3WrxYrKFtbC+SdBH/vyBVYQf3iv/wlryWyd16o+bhHHXZ+OEZIKCgvpjQpKCZt9NdTlBexn8N+JSKnn38AZKLUUTN/MrRuc1vVVx1+wIuLP6i9g3XMuVS21GK77dIqQVFBYSDRalqWEFZQPCU55UBJGU5YL7MvGuDP7swTXS8kz4i0KwIrI0nvtCvb9uaVhbmGzw2LSj2mxkLNCYSFR6ByVf5FGUJ7gCIqev5qxXllAT3K4nsgswXVT8gLb3xBNYnADKyL33ut/woqOyxw2LtOVD5qNR8hZoLCQTqgVUSLNmiePsDGUzBGUTBfq+guHrq6ld+wlPY0vW/b/ibBgZDh0k80RP+kxi2xPSDIoLKQVffotMdxKuYdd0XAu+8WqrrWw5S8cz3PZXkDa7B1qBn2de+NbJD5zHMdavnjnrIQ2xh02j2hLSFIoLKQLKwQGfQDfYMunfDw64pAnWAsll+Nlcteon6C4jOvmWbhCjSvMGDMTW96/SVyqEi5txLrDvtAdRs4FhYU0ogt6uRlfW1iRmInISi2KJvfUD3V5lf5CVjrw1aX97hAeSMtuPT8pdevPZACg4uKnF7uEBGCOw6SAT6iP5dThZ5gRchIoLKQNd3C6B3AXcE+F3C47WAFaOoUpC69N1nDdlT8xcuKEMsOy6hcth/M7wtZLhmM3V0hwYy2QPLI9IUmgsJA2qnkf9+rK8mfBZwgvalVZKVUM4juOn6CbLJ1Czz/Xc1RMcbndDGFLau66o0Rko9bLb7AVj6sVKm8RtkZ8IYkVlpuOyx0TkhSWdCG16ID+XwCPIhIMBmsmlx9/+SwiD1ovrICNQ9zroOoeWyKcEHAvInm1BoyIXDvHVH2aEltYqy3Ur69V5lsT+r7uYNOpc4Qtlh3iJ4d2uj4hKfnPuTtAJs019otgHaGTGH1R+amikmFfD6ta9MqnzmIp9OfRMSKyNsb0GWDHxC294gvCEscuwCPELnxWLX4GhNO6+7znS0rPJm8EusJIE2vYcvlHsQ6t3+WXcdkBWOrTtxt4P4qXqIsmNFA+qwutWoEy5PoqO/b/lNSVXrkJ1Do7JRQWcnIoLKQWEXkJVcl1ytb7LFRAChzOvVgF2tYNeFXbpuWEy5rXz0mVNuzPSQGAFVN/yXuCwkKi0JIrIVHZAXjQ7C/XPVaX3VU3ga8SsqZU2amWhF8h3O8rdHCHEfJWoLCQzmhMpW5FwwfYmIwbGwhaK+oGC1VDvnfK5NfGE3SSZcgyODdfYOe0/Azs+3RmlxghJ4PCQlrReShrNJfGf8BxjOGhxlrx27nnAA6tmbYA/9QoYN9faF7LykudrmOTsD+EnBymG5NGNLvLX4/dZwebJvs/7/Xf/RIuer5foXNUacXGGP+m/C0Q/L8OXG8q/ID9zELpx1vYSaa1kz8Tp1QfpXkTMja0WEgtTnHISlSqCX0+KxynJN8HROUa9ZbGg7bJAvuOXtOBua3A47n4DusW/BrYdwOgbArma+pxTMHJJqY4oZS8cSgs5AhjzJ26vqrikDvYml85jjOytlquJPdeX3rnrCok19UGq86bBfaFXgOm6w4DrFCuERa/W7QnIDTtf8a++Oe3AechZBxEhBu31w02q+lFtwdYwbh29q8AiLPNYZ/O3deWgfMWXht/u9Z2D4F9G/9czu+blvOec1vrZxN6T+K+j8DnNWs6t9f2paZdee77idv73GixEAAH66IAts7Xtdh1Uwo5jAe4wecnsfNc3GD7Fk4mmLPMcFPg/9m5RshF5Ne8etG0ZmDapfVvYS2xBcIuxC/62Rwh1o3Y1dVX5+5idWNyFigsBMDrZMiF2FL4wYFK3Vluba9cf1ZiswMwr0TCcX81iQpw6F6ry5pyxasE8F3XOymQLh4xBpXba45IcUG9IPmUgde+1v0fCRkbCguJwR3cf8g+OF+JwaIazBxR8WuJhSid3+uyz7JA+6X+DM3snxK3sH3NERbBoLioQOdoFxdfQL4JC0+SM8J0Y9IZY8wGNvh+kDKr6cGvVXSdUvldiya+piUHUo0rXtORvb78ri/92/2dnI17WBEsEf5sgqnBTt201zI3ImKc/VV68hNsfKtM3G9CoqDFQjqhs8arjK7ci7v8MUBUjtKSa/DPVx0zj4xHnJMvsOKQ1+2vs1zEZt7NAHyGtxqlWom/i67Uma67hPSDFgvphGMh/BSRYFC4p6jk3jmabsiP1cDprOXyLCJ3DRMvp8g9rPuqrjzONxGZunuPkFposZBWNAOrcoEta9rEispzyO0D687pQqk/bzWIXyJcRmWKfIGNS9VZWX+xrhi5ZCgspBFN860sFN8FVrWpE5VHWNeNPwP9Gc3r3cdSneuSnvK/wKZW1wXmu9YVI2RyUFhIGwWsYPwI+e81sOzXEruH9fnPYV0+7oC/Q41AKUfX6EA1AF/aLPNPsJMbQ5liLLVPLhYKC6lF1175ADsRclnTrMDh0rwfRSR3AvIFDkUnb5lfsemx7w6YdDn9Jj407Lt1JoIScjFQWEgQtUSW0EmPNW0y2KduwMZG7lyrRgdFd+D8KYEVKT1qRache8x1GRUt558iTXGpBVefJJcGhYXUUejPrMFttdSf95rq+tpO4wPuol/PbjaZFrp8McaIMaaoSrZIfWVfPzA/c353B+YpuMOekS6R4Ar16cmETBIKCznCGDOHtUQWdW4rFY4q3TcPNPED6a9tAsH+LwDWTj2wkDhsvL9n7h9VuX21as6VHXav2zXqqzj3IWgxEjJVKCzkAHW7rNBeFiSHHcCzwDlyHLrAfgRKvfjuHzdYHRKWsrnnvdsOZQu7FPEP2M/iC9KKCtAchyFkcvzn3B0gk2MBW269LXV3DqfgZIUjTBXPXuC/RH1M4YNaHmVEfyvc40q0F74cwg779VZmsCLbNn/nGd0smSfYTDEWkCQXC4WFvKKicF3j2vIpatxkr/WsnL+r8y/RXpQyF5HcGPOEuCd1N4BfRhzXFVdMACsmbeL1jP2aLJ8C+7ewfS1hxXwzvJuEnB+WdCHJUGHaYC8sjzqXpZpouUb7k/1WRGYqQm7w/4dr+TglXVx+cwpjrtGtsnITlTBUVtkc7RZHJRYbbe/34VH3P/hCUrMs84aCQy4NWiwkJbXWCmwGWZdyL9XA7VtDXWahz7GP0yzQr3ZYFfjfwLq5urrUKsG403647/VJ+/UgIi+avDDXnzO0WGbGGGAvciVo3ZCJQ4uFJMMpVAk4BSbVkvlf1/OIiAkcsxWRmXOtFYA/vUP9NiXGDXw/Yy9kOQ6tk63uK2AtnrluGbrXU2viCdYdWbQ1JOTUMCuMJEFTlF03UeH8Hp0uqy4tdxb9jVc7KzS35sabqZ4j/eqSj7AZYD9grZq/dKtE5R7AR1jLZQObyPA/AH/DxllSiApgBfNvY8zGGLPkJEoyJegKI6nInN+fvbpifedhlDi0Aty1TDY1x3w3xjyIyFpENpr6/E/P6wPWMnDjLP7ET8BaJytYMZ1pP313WBOV5bP267Fp3GWGemvnRvuTG2OWtGDIFKArjCTBc4MdrCfSssaKz7OI3OlxcxyLwkcRKZ1VE0PsYCsGVHNncliLoY2qZH+VRryBFZI7HA/oVZZYof3JYUUvxvUWveKjfiY5wllm1TlrJ7YSchJEhBu3wRsAcbaZ8/rM2yewT//LwOsCG5iujr2uOfZO97/UnKNqlznnmre077o9wA7s13reHFaAYs7xAjv4D/m8q1pudddeVX3kxu3UG2MsZDBemuxWDjOWZoFDVuhQ00tsnOXRe/kKQKnXbDrHFYBfVfxBbPHLGeKXMN5pH77CpjPPxbqb5mql/Y24mfbPsILXNgG1EdHlisUmK3zG8QJpf8KWycmGXIeQPtAVRgbjLQt8sNxwzZLBv4lNuw3dfDsReQ1Et7ixntFtrkq18mWV7nsNa2lksE/+M1hxqAbnDaw77CDmocfN9Vx9yrZUolJX1HMQzqJsOQ5dd4+wFtJmjOsS4kNhIYPxxMOfyOjuA+zaLpnuKxGISYiI8c7/gjTZVDvo5ERY0WiMQ+hAfQcrQBmGTbgcVVR8amIxPwCsTtUH8n5hVhhJwbrmd+A4Lbh0fn9AQFh0DfuN81KB4zkrfbiCHWg/6XUAa81svHYzpC0keVJRAQB1/T04VlYGKzQLY8wDbNLA5lT9Ie8LWiwkCU4JlY9ynDLr3mSfddBDQ2bXR88FNQPwb9oen4wtbLJBrajo5+BuM9QLWyWEJXQmfoxg6WeZYV/JYA11EXY9ByFt0GIhqVihPhbiFpR8HcBEZG2M2eJ4EM3gWDZi56PcY9yKxWNRhAZtHeBzHJfBaeNGt1dLzxjzqNfpkhCxwWWuskkuCGaFkSRoplTdevNNA14ReC00oXKJ9LPoT8F3Y8yDMSY3xsw1S62EtcC+I03s6BOAf3QWft/JqIQkg64wkgz152f+k7NX9birm+t3PwYQqHjcxg7WkioBvNQF651ikFWg/tIX1npCYK0cQk4FLRaSDJ1bcWSd6AAXnLeh4hGaW5IH2i5xPF+jiStoynBTBpjY8i8POi8kA/Ab7LwVfw7NpfABwIZzWMi5oMVCToYG+JcBiybD8VyXHewM/hevrWv9dOGgvEuPPs/QLxYyFb4K64eRE0NhISejzlWm+0ocu6AO5sQ4be/QvMRxiEFzOLTvC8S54lKywz6V+0V/z/TvazTPsaG4kJNCYSGToCbWsoNN1d0E2vcRl6pwZIkOEyQb+llg3DhMNZGzWthr3UUQ1fKr1n3xM+2O0sAJGQsKC5kMNcH515n6gfZ3sIN8iiWI6yZyviBczj5H/9IuIaoVKBvjQV1RkVliL4BB1yIhY0BhIZOiZq36g/pjXvtr2MSAU8xxeYR1p5XO9XNYF1mMuFVurRJWSMrG1gNQgSlgBfBRRJiOTEaHwkImhbqa1jh2cTXGCXSAXwWOG4OjdN4qfgSbsnyN/cx2YG/9rAFsUlgksTjW4OdQjIuQlFBYyORoiJ8Eg/nOcae0Xk5e/2soar2sRBdSI2QsKCxkkjSIyz1sCfim2lsz2AB2juHxlyYahW6K6Of6wgKUZEwoLGSyNATntwDyLrEJtWKqGfXA3lXlssFxhWOXama+34+DtWMIIRYKC5k0KgxLhMvm3+OE5d9rFvpiGi8hHizpQiaNlolZAPiI43IuX2CX312p++sUfSl0OeBv0Fn9Y1+XkEuDFgu5KDQAvcDhyogVncvHJ+rLHRKsX0/IW4PCQi4Sxy01h42BuBMVq5nrJRJNOCSEdIfCQt4ETpB+ppvLC+wqiZvT9oqQ9wmFhRBCSFIYvCeEEJIUCgshhJCkUFgIIYQkhcJCCCEkKRQWQgghSaGwEEIISQqFhRBCSFIoLIQQQpJCYSGEEJIUCgshhJCkUFgIIYQkhcJCCCEkKRQWQgghSaGwEEIISQqFhRBCSFIoLIQQQpJCYSGEEJIUCgshhJCkUFgIIYQkhcJCCCEkKRQWQgghSaGwEEIISQqFhRBCSFIoLIQQQpJCYSGEEJIUCgshhJCkUFgIIYQkhcJCCCEkKRQWQgghSaGwEEIISQqFhRBCSFIoLIQQQpJCYSGEEJKU/5y7A4RcAsaYrGbXWkReTtkXQqaOEZFz94GQyWGMmQGYA8gB3LY03wFYAygBPIjIesSuETJ5KCyEOKigLAF8GXCaLYAVgILWDHmPGNinrA8jnPt3EdkMPYkxZgXgbnh3To+IZKHX1a3yK9E1TIrzVBhjzvWkUT31V5T6d3mqwdkYswTwPeEpdwBWIrIccpIz/k/G5COGfQeeRCRL+V06ER9FpAztMMaUGGcsjuEZwAuADfYWeK/vXwlARthyEcGQDcD1SH07xVY2vK8s1XWGfsaBvp37cwtt6xT3U8N7vtNrjNX/DYDsjf1Phm7ZwOPL1N+lU73vhv9zOYH+hbYCwCzmnh0zKyxLcI55gnOQy+cWwN/GmI0xJk95Yn3iLdEeR3lq2HYtx94A+KUWESGXxhcAa2PMousBY2aFpRAFCgtxuYEVmBzAfKiLTM/zd49fyk4AAA5NSURBVEuzH7DurMZraWwmB7AAcFXT7Lsx5g7W+mLshVwSVwD+MsbciUje2rrFBC8xzIS6O6MbbNnjmque1+rt5gj0YVlzjU3K6/TsW8z9ENVXWAs3xh21BnA94L3MW87/0uf+1fv2Ycy+e9fbRHxms4bzjOEKXPd4PwvvHKuBn8+o32W9bxcR/4de32HUjwt1W9nhPp3DurleIs/d+j8Ze4LkEIvjHNbKqudxyxQXN8Zcw96kPs+wg1yZ4jpTRERKEbmDdS114RZAqZ9ZFGo1FC3NMumRNiwiLyIyB3Df0Kx33wMUEW3zhn1lw74trOUW2p4T9a3Cv//7nONk6H27EpEZgG/n7k9X9D59EJFcRK4B/Iw4/M+GeV2vF2hStRInfmJxrh166ot5qlr2vG7f9zwf8mSl1w5ZTC9I9HSboH8xn03fJ7NZ5Oce9UQL+6TW9oS2SPBZXaP9KbZIcJ2Yz2vTcJ67lmNnNcc1vccoiy/Qh9r+Rpwz9nvc6751rpeP9L1YRr6PcuBn3/teEulnsbQFKl1uez5RXgP4FNi1iT1XD5Y9j+tr7QB49dH/GdiVyTvyx4tNUW96CvZpf3o65AH1MRAA2IrIoP8lAOj/bNnS7EtMQLTmOhsAjx2b39R9VmKts23Dsbn/gp7rpqb9VuItPv+zeIg8/uyISIHu/4/J0OH/73NjjKn1KvURlth/dtbjGqEOb3E4z2EUxLqburpjXG4GDhKhwexbjy/nWyD2Hlt2aaT/nw8pztUFHWTavqx/qWtuCEVE27xhX5Oghu7tpnOVHfri43/vBwv8mRj0sHBGYr93ZxWWPrGS0DFlj/P0Je953LKnhZbh2EJ7SvHkfKFsItt/UIuvFmdGfRM7FYOUdPm+DLqmiDyg+9PmvOEeberHlZvqredo+m5HjRP69Otaks+SYIL1OYi0IqdErGdkVrejj7CUke2zmMYNbrCTmcV6Y8QEsyqu0O9pxReQHfqL21tg0+OYtgeYJZpdYMA491iXc94mmONSdGx3hZrPSt13TUkH7r3tC4F/rtjPMvf+LiKPnxqX+FAY6x2Z1e2IFha9+WLU+CbS1A/d9LseN+pQloiLJ1V8b3t6dtGnQH9y3vJSn9bOSK2w6P/jS4dzjHGPdf2yLgZmiRURbfOGfU0D4q0To2k6R9TTes3D5MXFV1zUpR4TK5wCsRZLXXytd7pxGdk+i2gbGiBOfpOpgOY9D192aaRfKL/t8zt2gQ2h6eFl2fEcyeNZeh91eUDpa+1W19mg+4Be6zrUmF5TjDHXY5tiVWXHfrye0/v7Yt1gHvm5O3Au+grLKAH8BjdYGXm9JKiV1MdX+qVjptICx6p/qYG/cxN0y0RYKxhxMHtLVssXtAv1m3WDGWPujDGlt+WhtirSn9HP83HR9BIW/QLGpKaFxCJEXvN6daNmEddMxQL9boxl086ayZD38oYnQY5NzaDcVaj7ZAKmpjb+0YXIIH4+4DxNQh1lbajw+67gKbvBMlhrzd1mdY31s5zBTp58RLy76SIZMvO+T9ZHG3ngtcdzzuPQL8myx6EfWt7zCodP2bue1yF7Qu6w3gP1mRhqsRYd29XOaVH6umPLyPb++526Gyw6NVzsLPeViMzf2PSB2oexkwkLWqyNmieXPtdJjsY8+jzRBr+cNe6Z1cS/UJfAwQNIywS+qXIbk/wRoIhomyc6j8vQ6Qh9r3sqZufuwIhkke3Luh29hUVdNjEuorYnx7r9ZcQ1xiRHvEusbtJk4f29w2WmJ06KwNPgpVkrFUPcYRt0jwvWzmnpkHocYhfjyq0R/rM/SLbQNsH2kski2larpAYZWoQy5ia4aXkSywOvTcYs1n70GfwPJk3ql8m/OVvLspNWQhZldupOJGKoIBYd27XFdGIH+aFB+8epfN9DJKiQMFlqxqU6dmhZtmKosJSR7bPQiw1usCLy/KMidonZ2Nx0P4208PbTWklDEXitbfGuqTLoqThxED/GSt90bVgzc3/q1srs3B0YAxXMrp/9Dh0qf5/SYgHqn47qXvfPPyQVMxV5j2O+G2Nmmpbom/60Vo7JIttv/VIskYUpJ0eCp+Ou3822cjgx3/Esom1o5v7UheXNWSzOCqptVSkA+7DSKirAQGHRATEmqJ3VvJ4HXtsGzOKzP4Hqh9qn3MsK4dIttFaOySPbhx5MpvAQMoTZwONj7qsmd1gZcZ7Wmm0N1zxr9mcbamFl5+5HBNfGmKxhy40xJYBf6CYqT7DLIHTKakuxNPEDupvuV8aYzA3wTTkbrIEl7ODX5R9SEZrLQ2vFQ2tmxWRyfa252S/96TLGPXGEiGyMMU/o9t1coF6IYtNjF2hJmdbv/FRLuNwZYwArIjPdLjFgfwsrGin4KSJRafApVpAcmnZc97RURPfkRKgYpJghT2vFQV2F3yMO+TpCNeKpkMLiKjq2q63n12PeRZfEg1CbqQjLX7AD8nfYKQGXKCop+RorKkACYekxC9+/qfJAmz6LBJ0UHdCGFJm7p7Vi0fjTA4C/Ox6yA/DxDYsKkMDi0s+na/C9afCIuc8bF4Cqudak3WDvmN7fsRSuMMA+bYRWPwxxa4y5FpGXBjdYmahfY7NAf3PzrVsrK2NM18Ei5qnwHnbpYA5E3SjQ7bvZJAaxn3WOGgtELaNLm7vyHhlUmfkcwgLYm7hA92ywSSIiZYQf2+V56hZZAlInWjzCLifw1j+31KzQ7bt5ZYzJE1mBn6qHx8C+PPDaRXzfL4wdwvGxGbrFMG8B/NLxbRH7vUsRY+kzCz/Tn3lgX3DtlYFVX8ekONEx75EtbAbe72+wztJJUFd118zNlJUK8o6v0w02DmsRyQLbDMDviFhiAUBtBec6kgiLEvPUMe+RDTbJLJ9IP3YFn9DCbGFv+G8A/hCRmYgspjwbe0RSDrZFx3afBtYpczmK2QSWHwam95D1UUSMu8GWvr+0RbtqEZGNiMzRvWTPFaxru/MYnMoVBti4SKd1L2A7umw4z6XxgO7vPTQ/5y3yDd1TVdd8aj0imXUmIoUxZoVu6fFzHMf/+mRG3Rhj/HkPudfmHCvDRqN9fNAEk65LgEweEckjCrVewT4EdBKXc1ksQP1APPkbLUAZ0XYzUh+mxlpEyo7bGKJSjnDOU7JJfL6iY7sDS2NgBYDXc72R5Yfzc3dgBGKSiG67usSSCYsODkPNxUv1t27O3QFyxCXeRy6p40ldBxB/TsuQuItbPXnKc1c6oWNTnxVlp0yqslwHpLRYgOH+0ou60ch0URfMpS4Ju0udqBAZxF8AtaucxuBWT/bPcxFusABvKoGkz2rAXRKpUgtLeebjCXEpz92Bnow14BYd21Vi4Mdl7hE3CAFAfoHLD4+GMeYuYYJEKjaR7bO2BkmFRZ+yYm+8ira1V6aabkymy6UOXqP0OyKD8coYs0ZglVPEWzAfEHbDXer/phda+HED4L+YXqymjGzfGndLbbEA/W+YomX/JNONyaS5xMFrbBdR0bGdb2E8i8ha+xa7TLcftL9UN1gvNM36F6a7THZsPDJrazCGsJQ9j3s3Nxo5DT2X1z03Y5f66Xt+97h8YB8u+bteAPjobUVdY41H1O6fCLFxo5PHWPqsOgdMaAli8ua4pJpso6/PExnEr9jBEQM9x48B3SgGHHtWdHKhny6/aThkgbjlNS6B1nJNY1gsQLzVEtuekE5o3K/LQDqF8uinWp+niGz/EOjXCv2y7rbuekzvgPzcHehA8ky3sYQl1tQtxugEIUqngHOC5YDrmHVoc7LVRHuUIVoGzvGCfqnIl+wGi0Kzv6YaV3mlz8NM23dlCsIy+bVXyGUTsZx0yiKMAF597F0Gl/zEk4OLju2e6lw9KlCxbrWu130LJL+fRiR2cntjnGUUYYmchd9VhGb9ekMIAPvU3ZYKn49w3S6Dy+MZsqS6WkdFy/4Yq+W9PURm5+5ABLEPNacXFqXo2K7s2G7WqxeE4PVhJ29pdmOMGTLTPETbNbcd2iSnYxB/17Y+iwpF18y79+QGC9VGmzJlZPuzuMKAbh19V/ns5Lxo0Lgtm2mZau0frRzblBSwAzA/Y328YuD+igW6xWy6nu8tcEluMCBxyvFowtJxFj5FhZwUEVmi+Qn7CnZho0Hiose3uZvOunhZhyB+J3eZCuOypdm7cYPp/3557n5EUka2z5p2jmmxAO3CQWEhJ0dEcjTHAG8xQFycSXFN+f5fJ5J2W9S8/hgzt0xEVmh+kHwX33XngWLy2WAuPSo33zbVPBtbWMqB+wkZiwzNMYZbAGt1Z3VGv2wl6v3rO9jVMYuY845InVVS9DhX3rCvz/kuBq0FtoB1KXVd9G9qxIp/XrdjVGFpmYV/qWuvkDeAiLyISIZmt9gNgF/GmNIYkzdZMMaYuTGmAPAv6i2VZwDZlFxCNUH8bZ/Yp1pgoafeS3KD/TLGSOwGWwvsL1yYpeKiDzsxRYS/NyW7lAAk0bYUEbgbrAqG2uaBtqn6Ed3Ppi3xZ9Rly2L6l3I74Xssz/UeA+95cYL3uwJwfe73WvP+8yHfD+9cM9jUVfd8ixH7np34u5liC36+OOE4M/bnObYrDKg3r96Fz5VMH7HxgT8QP9mvC0+wrq+FTNRCl+MgfjHgXBscu9f4Xb8QxFqd34ae5xTCUgZee57ql4y8T8SWhM9gq9WmEJh7AB9FJJPLcAMV+vNehheEdQP5LDB7YeiD1tch5xhdWPSm8jNwirGvS0gfxFarzQD8Dvvk9oR2v/NO2/0E8BnAbyKSyzSyvrpSWRnF0BPJYR2xwecjp0et2N5WvFG/GiHknWOMKcSmYqc6XwkbS92kOic5PVpwcg4bf/lQ02wH650qAJQUFkLIKBhjrunyfpuo2FRZkmv///z/AQEOTIexkBl0AAAAAElFTkSuQmCC";
 const STATUS_META = {
   Pending: { color: "var(--pending)", label: "Pending" },
   Approved: { color: "var(--approved)", label: "Approved" },
   Rejected: { color: "var(--rejected)", label: "Rejected" },
   Paid: { color: "var(--paid)", label: "Paid" },
+};
+const ATT_STATUS_META = {
+  present: { color: "var(--approved)", label: "Present" },
+  late: { color: "var(--pending)", label: "Late" },
+  half_day: { color: "var(--paid)", label: "Half day" },
+  absent: { color: "var(--rejected)", label: "Absent" },
+  awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
 };
 const BAR_COLORS = ["#F5C300", "#2A6A5A", "#B5762B", "#8C3B3B", "#2F3B52", "#7A6FB0", "#3E7CB1", "#C97C2C"];
 
@@ -68,6 +76,37 @@ function fmtNPR(n) {
 }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return (d || "").slice(0, 7); }
+
+// ---------- Attendance helpers (local device time, not UTC — matters for
+// midnight rollover and late-flagging, unlike the UTC-based todayStr above) ----------
+function pad2(n) { return String(n).padStart(2, "0"); }
+function localDateKey(d) { d = d || new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function localTimeStr(d) { d = d || new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function fmtTimeLabel(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  let h = d.getHours(); const m = pad2(d.getMinutes()); const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m} ${ap}`;
+}
+function computeAttStatus(timeStr, location) {
+  if (!location || !location.shiftStart) return "present";
+  const [inH, inM] = timeStr.split(":").map(Number);
+  const [shH, shM] = location.shiftStart.split(":").map(Number);
+  const inMinutes = inH * 60 + inM;
+  const cutoff = shH * 60 + shM + (Number(location.graceMinutes) || 0);
+  return inMinutes > cutoff ? "late" : "present";
+}
+function getGeoPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("Location isn't available on this device or browser.")); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => reject(new Error(err.message || "Couldn't get your location — check location permission.")),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  });
+}
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 }
@@ -196,8 +235,9 @@ function MoreMenu({ items }) {
   );
 }
 
-function StatusBadge({ status }) {
-  const meta = STATUS_META[status] || STATUS_META.Pending;
+function StatusBadge({ status, metaMap }) {
+  const map = metaMap || STATUS_META;
+  const meta = map[status] || { color: "var(--ink-soft)", label: status };
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 999,
@@ -246,8 +286,9 @@ const inputStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid v
 const smallSelect = { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 13 };
 const ghostBtn = { padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--card)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" };
 
-function Field({ label, children }) {
-  return <label style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</label>;
+function Field({ label, children, plain }) {
+  const Tag = plain ? "div" : "label";
+  return <Tag style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</Tag>;
 }
 
 function StatCard({ label, value, accent }) {
@@ -456,9 +497,24 @@ function CategoryPicker({ value, onChange, categories, placeholder }) {
   );
 }
 
-function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
+function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat }) {
   const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
-  const [form, setForm] = useState({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+  const buildForm = () => {
+    if (editingExpense) {
+      return {
+        date: editingExpense.date || todayStr(),
+        category: editingExpense.category || categories[0]?.name || "",
+        paymentMode: editingExpense.paymentMode || PAYMENT_MODES[0],
+        note: editingExpense.note || "",
+        items: editingExpense.items && editingExpense.items.length > 0
+          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, qty: it.qty, unitPrice: it.unitPrice }))
+          : [emptyItem()],
+        receipt: editingExpense.receipt || null,
+      };
+    }
+    return { date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null };
+  };
+  const [form, setForm] = useState(buildForm);
   const [submitting, setSubmitting] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [fileError, setFileError] = useState("");
@@ -496,14 +552,23 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    await onSubmit(form);
-    setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+    if (editingExpense) {
+      await onUpdate(editingExpense, form);
+    } else {
+      await onSubmit(form);
+      setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+    }
     setSubmitting(false);
   };
 
   return (
     <Card style={{ maxWidth: 660, padding: isMobile ? 16 : 20 }}>
-      <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Log a new expense</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600 }}>
+          {editingExpense ? (editingExpense.editKind === "own" ? "Edit & resubmit claim" : "Edit transaction") : "Log a new expense"}
+        </div>
+        {editingExpense && <button type="button" onClick={onCancelEdit} style={{ ...ghostBtn, fontSize: 12 }}>Cancel</button>}
+      </div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           <Field label="Date">
@@ -584,7 +649,7 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
           <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
-        <Field label="Receipt / bill photo (optional)">
+        <Field label="Receipt / bill photo (optional)" plain>
           {!form.receipt ? (
             <div>
               <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
@@ -624,17 +689,18 @@ function AddExpense({ categories, tags, onSubmit, isMobile, dateFormat }) {
           marginTop: 4, padding: isMobile ? "14px 18px" : "11px 18px", borderRadius: 8, border: "none",
           background: (!canSubmit || submitting || compressing) ? "#ddd3ba" : "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: isMobile ? 15 : 14,
           cursor: (!canSubmit || submitting || compressing) ? "not-allowed" : "pointer",
-        }}>{submitting ? "Submitting…" : `Submit claim — ${fmtNPR(total)}`}</button>
+        }}>{submitting ? "Saving…" : editingExpense ? `Save changes — ${fmtNPR(total)}` : `Submit claim — ${fmtNPR(total)}`}</button>
       </form>
     </Card>
   );
 }
 
 // ---------- My Expenses ----------
-function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
+function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat }) {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [confirmWithdrawId, setConfirmWithdrawId] = useState(null);
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate))
     .sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, fromDate, toDate]);
 
@@ -693,12 +759,26 @@ function MyExpenses({ myName, expenses, onWithdraw, onExport, dateFormat }) {
                     </div>
                   )}
                   {e.reviewNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Reviewer note: {e.reviewNote}</div>}
+                  {e.lastEditedBy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
                 <StatusBadge status={e.status} />
-                {e.status === "Pending" && <button onClick={() => onWithdraw(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>}
+                {(e.status === "Pending" || e.status === "Rejected") && confirmWithdrawId !== e.id && (
+                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>{e.status === "Rejected" ? "Edit & resubmit" : "Edit"}</button>
+                )}
+                {e.status === "Pending" && (
+                  confirmWithdrawId === e.id ? (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete this claim for good?</span>
+                      <button onClick={() => { onWithdraw(e.id); setConfirmWithdrawId(null); }} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, withdraw</button>
+                      <button onClick={() => setConfirmWithdrawId(null)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmWithdrawId(e.id)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Withdraw</button>
+                  )
+                )}
               </div>
             </div>
           ))}
@@ -758,7 +838,7 @@ function MyAnalysis({ expenses }) {
 }
 
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, dateFormat }) {
+function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, onEdit, isSuperAdmin, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -865,6 +945,12 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                       ))}
                     </div>
                   )}
+                  {e.status === "Pending" && e.reviewNote && (
+                    <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Previously rejected: {e.reviewNote}</div>
+                  )}
+                  {e.lastEditedBy && (
+                    <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>Edited by {e.lastEditedBy} on {fmtDate((e.lastEditedAt || "").slice(0, 10), dateFormat)}</div>
+                  )}
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -879,6 +965,9 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                   </>
                 )}
                 {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
+                {isSuperAdmin && ["Pending", "Approved", "Paid"].includes(e.status) && (
+                  <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Edit</button>
+                )}
                 <button onClick={() => { if (window.confirm(`Permanently delete this ${fmtNPR(e.amount)} transaction? This cannot be undone.`)) onDelete(e.staffUid, e.id); }}
                   style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Delete</button>
               </div>
@@ -954,6 +1043,73 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
   );
 }
 
+function LocationRow({ loc, routers, onUpdate, onRemove, onAddRouter, onRemoveRouter }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 });
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [newSsid, setNewSsid] = useState("");
+  const [newBssid, setNewBssid] = useState("");
+  const myRouters = routers.filter((r) => r.locationId === loc.id);
+
+  const save = () => {
+    if (draft.name.trim()) onUpdate(loc.id, { name: draft.name.trim(), shiftStart: draft.shiftStart, graceMinutes: Number(draft.graceMinutes) || 0 });
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
+        {editing ? (
+          <div style={{ display: "flex", gap: 6, flex: 1, flexWrap: "wrap" }}>
+            <input autoFocus value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="Location name" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, flex: 1, minWidth: 100 }} />
+            <input type="time" value={draft.shiftStart} onChange={(e) => setDraft((d) => ({ ...d, shiftStart: e.target.value }))}
+              style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 100 }} />
+            <input type="number" min="0" value={draft.graceMinutes} onChange={(e) => setDraft((d) => ({ ...d, graceMinutes: e.target.value }))}
+              placeholder="Grace min" style={{ ...inputStyle, padding: "5px 8px", fontSize: 13, width: 80 }} />
+          </div>
+        ) : (
+          <span style={{ flex: 1 }}>
+            {loc.name}
+            <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>· shift {loc.shiftStart || "09:00"} · {loc.graceMinutes ?? 0} min grace</span>
+          </span>
+        )}
+        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {editing ? (
+            <button onClick={save} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Save</button>
+          ) : (
+            <button onClick={() => { setDraft({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 }); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>
+          )}
+          <button onClick={() => setConfirmingRemove((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+        </div>
+      </div>
+      {confirmingRemove && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{loc.name}" and its {myRouters.length} router{myRouters.length === 1 ? "" : "s"}? This can't be undone.</span>
+          <button onClick={() => { onRemove(loc.id); setConfirmingRemove(false); }} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Yes, delete</button>
+          <button onClick={() => setConfirmingRemove(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11 }}>Cancel</button>
+        </div>
+      )}
+      <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
+        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>Routers ({myRouters.length})</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          {myRouters.map((r) => (
+            <span key={r.id} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: "var(--card)", border: "1px solid var(--line)", fontFamily: "'IBM Plex Mono', monospace", display: "flex", alignItems: "center", gap: 6 }}>
+              {r.ssid} · {r.bssid}
+              <span onClick={() => onRemoveRouter(r.id)} style={{ cursor: "pointer", color: "var(--rejected)", fontWeight: 700 }} title="Remove router">×</span>
+            </span>
+          ))}
+          <input value={newSsid} onChange={(e) => setNewSsid(e.target.value)} placeholder="SSID" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 90 }} />
+          <input value={newBssid} onChange={(e) => setNewBssid(e.target.value)} placeholder="BSSID (MAC address)" style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 150 }} />
+          <button onClick={() => { if (newSsid.trim() && newBssid.trim()) { onAddRouter(loc.id, newSsid, newBssid); setNewSsid(""); setNewBssid(""); } }}
+            style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11 }}>+ Add router</button>
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginTop: 6 }}>Manual entry for now — the Android app will get a scan-and-detect option later.</div>
+      </div>
+    </div>
+  );
+}
+
 function RoleButtons({ role, onChange, disabled }) {
   const roles = [
     { id: "staff", label: "Staff" },
@@ -977,7 +1133,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onToggleActive }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onEditProfile }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -992,29 +1148,53 @@ function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onT
   return (
     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 10, flexWrap: "wrap" }}>
-        <div>
-          <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-            {s.email ? (
-              <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {s.photo ? (
+            <img src={s.photo} alt="" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)", flexShrink: 0 }} />
+          ) : (
+            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--paper-dark)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontFamily: "'Lora', serif", color: "var(--ink-soft)", flexShrink: 0 }}>{(s.name || "?")[0]}</div>
+          )}
+          <div>
+            <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}
+              {s.designation && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}> · {s.designation}</span>}
+              {s.staffCode && <span style={{ fontSize: 11, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}> · {s.staffCode}</span>}
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+              {s.email ? (
+                <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+                  style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
+                  {copied === "email" ? "Copied!" : s.email}
+                </span>
+              ) : (
+                <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
+              )}
+              <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
                 style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-                {copied === "email" ? "Copied!" : s.email}
+                {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
               </span>
-            ) : (
-              <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
-            )}
-            <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
-              style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-              {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
-            </span>
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={() => onEditProfile(s.uid)} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11.5 }}>Edit profile</button>
           <RoleButtons role={role} onChange={(r) => onSetRole(s.uid, r)} disabled={isMe} />
           <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
             <input type="checkbox" checked={s.active !== false} onChange={(e) => onToggleActive(s.uid, e.target.checked)} disabled={isMe} /> Active
           </label>
         </div>
+      </div>
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 6 }}>
+          Location
+          <select value={s.locationId || ""} onChange={(e) => onSetLocation(s.uid, e.target.value)} style={{ ...smallSelect, fontSize: 11.5 }}>
+            <option value="">None assigned</option>
+            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="checkbox" checked={!!s.remoteCheckInAllowed} onChange={(e) => onToggleRemote(s.uid, e.target.checked)} />
+          Remote check-in allowed
+        </label>
       </div>
       {role === "admin" && (
         <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
@@ -1046,32 +1226,10 @@ function StaffRow({ s, myUid, categories, onSetRole, onToggleCategoryAccess, onT
   );
 }
 
-function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive }) {
+function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, tags, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount }) {
   const [newCat, setNewCat] = useState("");
-  const [newStaffName, setNewStaffName] = useState("");
-  const [newStaffEmail, setNewStaffEmail] = useState("");
-  const [newStaffPin, setNewStaffPin] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
   const [catSearch, setCatSearch] = useState("");
   const [tagSearch, setTagSearch] = useState("");
-  const [staffSearch, setStaffSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
-
-  const createStaff = async () => {
-    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
-      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
-    }
-    setBusy(true); setMsg("");
-    try {
-      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
-      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
-      setMsg("Staff login created.");
-    } catch (err) {
-      setMsg("Could not create login: " + err.message);
-    }
-    setBusy(false);
-  };
 
   const catQ = catSearch.trim().toLowerCase();
   const filteredCategories = categories.filter((c) => c.name.toLowerCase().includes(catQ));
@@ -1080,12 +1238,6 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
   const tagsWithCount = tags.map((t) => ({ ...t, count: tagUsageCount(t.name) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   const filteredTags = tagsWithCount.filter((t) => t.name.toLowerCase().includes(tagQ));
-
-  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
-  const staffQ = staffSearch.trim().toLowerCase();
-  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
-  const activeStaff = filteredStaff.filter((s) => s.active !== false);
-  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1137,7 +1289,170 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
           ))}
         </div>
       </CollapsibleCard>
+    </div>
+  );
+}
 
+function AttendanceSettings({ locations, routers, onAddLocation, onUpdateLocation, onRemoveLocation, onAddRouter, onRemoveRouter }) {
+  const [newLocName, setNewLocName] = useState("");
+  const [newLocShift, setNewLocShift] = useState("09:00");
+  const [newLocGrace, setNewLocGrace] = useState("15");
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <CollapsibleCard storageKey="locations" title="Locations"
+        subtitle="Each location has its own shift start time, grace period, and registered WiFi routers (used by the Android app for auto check-in — coming separately).">
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <input value={newLocName} onChange={(e) => setNewLocName(e.target.value)} placeholder="Location name" style={{ ...inputStyle, flex: 1, minWidth: 120 }} />
+          <input type="time" value={newLocShift} onChange={(e) => setNewLocShift(e.target.value)} style={{ ...inputStyle, width: 120 }} />
+          <input type="number" min="0" value={newLocGrace} onChange={(e) => setNewLocGrace(e.target.value)} placeholder="Grace min" style={{ ...inputStyle, width: 100 }} />
+          <button onClick={() => { onAddLocation(newLocName, newLocShift, newLocGrace); setNewLocName(""); setNewLocShift("09:00"); setNewLocGrace("15"); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {locations.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No locations yet — add one above.</div>}
+          {locations.map((loc) => (
+            <LocationRow key={loc.id} loc={loc} routers={routers} onUpdate={onUpdateLocation} onRemove={onRemoveLocation} onAddRouter={onAddRouter} onRemoveRouter={onRemoveRouter} />
+          ))}
+        </div>
+      </CollapsibleCard>
+    </div>
+  );
+}
+
+function StaffProfileEditor({ uid, s, sensitive, onSaveProfile, onSaveSensitive, onBack }) {
+  const [form, setForm] = useState({
+    staffCode: s.staffCode || "", phone: s.phone || "", designation: s.designation || "", joinDate: s.joinDate || "",
+    department: s.department || "", employmentType: s.employmentType || "Full-time",
+    emergencyName: s.emergencyName || "", emergencyPhone: s.emergencyPhone || "", bloodGroup: s.bloodGroup || "",
+    photo: s.photo || null,
+  });
+  const [sensitiveForm, setSensitiveForm] = useState({
+    bankName: (sensitive && sensitive.bankName) || "", bankAccount: (sensitive && sensitive.bankAccount) || "",
+    citizenshipNumber: (sensitive && sensitive.citizenshipNumber) || "", panNumber: (sensitive && sensitive.panNumber) || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setSens = (k) => (e) => setSensitiveForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await resizeImageFile(file, 300, 0.7);
+      setForm((f) => ({ ...f, photo: dataUrl }));
+    } catch (err) { /* leave photo unchanged on failure */ }
+    setPhotoBusy(false);
+    e.target.value = "";
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await onSaveProfile(uid, form);
+    await onSaveSensitive(uid, sensitiveForm);
+    setSaving(false);
+    onBack();
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <button onClick={onBack} style={{ ...ghostBtn, width: "fit-content" }}>← Back to staff list</button>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{s.name}'s profile</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Core identity, employment, and emergency contact details.</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+          {form.photo ? (
+            <img src={form.photo} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} />
+          ) : (
+            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--paper-dark)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontFamily: "'Lora', serif", color: "var(--ink-soft)" }}>{(s.name || "?")[0]}</div>
+          )}
+          <div>
+            <input type="file" accept="image/*" onChange={handlePhoto} disabled={photoBusy} style={{ fontSize: 12.5 }} />
+            {photoBusy && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4 }}>Processing photo…</div>}
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Staff code"><input value={form.staffCode} onChange={set("staffCode")} placeholder="MP-014" style={inputStyle} /></Field>
+          <Field label="Phone"><input value={form.phone} onChange={set("phone")} placeholder="98XXXXXXXX" style={inputStyle} /></Field>
+          <Field label="Designation"><input value={form.designation} onChange={set("designation")} placeholder="Sales Executive" style={inputStyle} /></Field>
+          <Field label="Date of joining"><input type="date" value={form.joinDate} onChange={set("joinDate")} style={inputStyle} /></Field>
+          <Field label="Department"><input value={form.department} onChange={set("department")} placeholder="Sales" style={inputStyle} /></Field>
+          <Field label="Employment type">
+            <select value={form.employmentType} onChange={set("employmentType")} style={inputStyle}>
+              <option>Full-time</option><option>Part-time</option><option>Contract</option>
+            </select>
+          </Field>
+          <Field label="Emergency contact name"><input value={form.emergencyName} onChange={set("emergencyName")} style={inputStyle} /></Field>
+          <Field label="Emergency contact phone"><input value={form.emergencyPhone} onChange={set("emergencyPhone")} style={inputStyle} /></Field>
+          <Field label="Blood group">
+            <select value={form.bloodGroup} onChange={set("bloodGroup")} style={inputStyle}>
+              <option value="">—</option>
+              {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((bg) => <option key={bg}>{bg}</option>)}
+            </select>
+          </Field>
+        </div>
+      </Card>
+
+      <Card style={{ borderColor: "var(--pending)" }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Sensitive documents</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>Only Super Admins can see this section — it's stored in a separate, more tightly locked part of the database from the rest of the profile.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Bank name"><input value={sensitiveForm.bankName} onChange={setSens("bankName")} style={inputStyle} /></Field>
+          <Field label="Bank account number"><input value={sensitiveForm.bankAccount} onChange={setSens("bankAccount")} style={inputStyle} /></Field>
+          <Field label="Citizenship number"><input value={sensitiveForm.citizenshipNumber} onChange={setSens("citizenshipNumber")} style={inputStyle} /></Field>
+          <Field label="PAN number"><input value={sensitiveForm.panNumber} onChange={setSens("panNumber")} style={inputStyle} /></Field>
+        </div>
+      </Card>
+
+      <button onClick={save} disabled={saving} style={{ ...ghostBtn, justifySelf: "start", padding: "10px 22px" }}>{saving ? "Saving…" : "Save profile"}</button>
+    </div>
+  );
+}
+
+function PeopleManage({ staffMap, staffSensitiveMap, myUid, categories, locations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSaveProfile, onSaveSensitive }) {
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffPin, setNewStaffPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const [editingProfileUid, setEditingProfileUid] = useState(null);
+
+  const createStaff = async () => {
+    if (!newStaffName.trim() || !newStaffEmail.trim() || newStaffPin.length < 6) {
+      setMsg("Fill in name, email, and a PIN of at least 6 characters."); return;
+    }
+    setBusy(true); setMsg("");
+    try {
+      await onCreateStaff(newStaffEmail.trim(), newStaffPin, newStaffName.trim());
+      setNewStaffName(""); setNewStaffEmail(""); setNewStaffPin("");
+      setMsg("Staff login created.");
+    } catch (err) {
+      setMsg("Could not create login: " + err.message);
+    }
+    setBusy(false);
+  };
+
+  const staffEntries = Object.entries(staffMap).map(([uid, s]) => ({ uid, ...s }));
+  const staffQ = staffSearch.trim().toLowerCase();
+  const filteredStaff = staffEntries.filter((s) => (s.name || "").toLowerCase().includes(staffQ));
+  const activeStaff = filteredStaff.filter((s) => s.active !== false);
+  const inactiveStaff = filteredStaff.filter((s) => s.active === false);
+
+  if (editingProfileUid) {
+    const s = { uid: editingProfileUid, ...staffMap[editingProfileUid] };
+    return (
+      <StaffProfileEditor uid={editingProfileUid} s={s} sensitive={staffSensitiveMap[editingProfileUid]}
+        onSaveProfile={onSaveProfile} onSaveSensitive={onSaveSensitive} onBack={() => setEditingProfileUid(null)} />
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
@@ -1149,21 +1464,21 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including this Manage tab. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Staff has no admin access. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onEditProfile={setEditingProfileUid} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onEditProfile={setEditingProfileUid} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1172,6 +1487,195 @@ function Manage({ categories, tags, staffMap, myUid, onAddCategory, onRemoveCate
 }
 
 // ---------- Main App ----------
+function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
+  const [selDate, setSelDate] = useState(localDateKey());
+  const pending = allAttendance.filter((a) => a.status === "awaiting_checkin");
+  const dayRecords = allAttendance.filter((a) => a.date === selDate);
+  const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
+  const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      {pending.length > 0 && (
+        <Card>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Pending check-in requests ({pending.length})</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {pending.map((a) => {
+              const s = staffMap[a.staffUid] || {};
+              return (
+                <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
+                    {a.requestNote && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2 }}>"{a.requestNote}"</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => onApproveRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
+                    <button onClick={() => onRejectRequest(a.staffUid, a.date)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>Team attendance</div>
+          <input type="date" value={selDate} onChange={(e) => setSelDate(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {staffList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
+          {staffList.map((s) => {
+            const rec = dayRecords.find((a) => a.staffUid === s.uid);
+            const status = rec ? rec.status : "absent";
+            return (
+              <div key={s.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
+                <div>
+                  <span>{s.name}</span>
+                  <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>{locName(s.locationId)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
+                  <StatusBadge status={status} metaMap={ATT_STATUS_META} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, dateFormat }) {
+  const [note, setNote] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [halfDayToggle, setHalfDayToggle] = useState(false);
+  const dateKey = localDateKey();
+  const today = myAttendance.find((a) => a.date === dateKey);
+  const canSelfCheckIn = !!me.remoteCheckInAllowed;
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 2 }}>Attendance</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>{location ? location.name : "No location assigned"}</div>
+
+        {!today && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Not checked in yet</div>
+            {canSelfCheckIn ? (
+              <button onClick={onCheckIn} disabled={attBusy}
+                style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
+                {attBusy ? "Getting your location…" : "Check in"}
+              </button>
+            ) : requesting ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (e.g. WiFi is down)" style={inputStyle} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { onRequestCheckIn(note); setRequesting(false); setNote(""); }} disabled={attBusy} style={{ ...ghostBtn, flex: 1 }}>{attBusy ? "Sending…" : "Send request"}</button>
+                  <button onClick={() => setRequesting(false)} style={ghostBtn}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setRequesting(true)} style={ghostBtn}>Request check-in</button>
+            )}
+            {attError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 8 }}>{attError}</div>}
+          </div>
+        )}
+
+        {today && today.status === "awaiting_checkin" && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Check-in request sent</div>
+            {today.requestNote && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 8, fontStyle: "italic" }}>"{today.requestNote}"</div>}
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>Waiting for an admin to check you in.</div>
+            <button onClick={onCancelRequest} style={ghostBtn}>Withdraw request</button>
+          </div>
+        )}
+
+        {today && today.checkInTime && !today.checkOutTime && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Checked in at {fmtTimeLabel(today.checkInTime)}</div>
+              <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+            </div>
+            {today.checkedInBy && today.checkedInBy !== "self" && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Checked in by {today.checkedInBy}</div>}
+            <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
+              <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
+            </label>
+            <button onClick={() => onCheckOut(halfDayToggle)} disabled={attBusy} style={{ ...ghostBtn, width: "100%" }}>{attBusy ? "Checking out…" : "Check out"}</button>
+          </div>
+        )}
+
+        {today && today.checkInTime && today.checkOutTime && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtTimeLabel(today.checkInTime)} – {fmtTimeLabel(today.checkOutTime)}</div>
+            <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent history</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {myAttendance.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No attendance recorded yet.</div>}
+          {myAttendance.slice(0, 14).map((a) => (
+            <div key={a.date} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtDate(a.date, dateFormat)}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                  {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
+                </div>
+              </div>
+              <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// Text wordmark for now — swap the placeholder block below for an <img src="logo.png" .../>
+// once the real logo file is added to the repo. Kept as one component so that's a one-line change.
+function Logo({ large }) {
+  return <img src={LOGO_DATA_URI} alt="MY POWER" style={{ height: large ? 110 : 34, width: "auto", display: "block" }} />;
+}
+
+function HomeCard({ label, sub, onClick, accent }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "block", width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+      background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "28px 24px",
+    }}>
+      <div style={{ width: 40, height: 4, background: accent, borderRadius: 2, marginBottom: 18 }} />
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 20, fontWeight: 600, marginBottom: 6 }}>{label}</div>
+      {sub && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{sub}</div>}
+    </button>
+  );
+}
+
+function HomeScreen({ me, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterPeople, onSignOut }) {
+  return (
+    <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
+        <button onClick={onSignOut} style={ghostBtn}>Sign out</button>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: isMobile ? "20px 20px 40px" : "20px 20px 60px", textAlign: "center" }}>
+        <Logo large />
+        <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 34px" }}>Hi, {me.name}</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
+          <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
+          <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
+        </div>
+        {isSuperAdmin && (
+          <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MainApp({ user }) {
   const isMobile = useIsMobile();
   const [dateFormat, setDateFormat] = useState(() => { try { return localStorage.getItem("mp-date-format") || "AD"; } catch (e) { return "AD"; } });
@@ -1181,14 +1685,28 @@ function MainApp({ user }) {
     return next;
   });
   const [staffMap, setStaffMap] = useState(null);
+  const [staffSensitiveMap, setStaffSensitiveMap] = useState({});
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
   const [myExpenses, setMyExpenses] = useState([]);
   const [allExpenses, setAllExpenses] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [routers, setRouters] = useState([]);
+  const [myAttendance, setMyAttendance] = useState([]);
+  const [allAttendance, setAllAttendance] = useState([]);
+  const [attBusy, setAttBusy] = useState(false);
+  const [attError, setAttError] = useState("");
+  const [section, setSection] = useState("home");
   const [tab, setTab] = useState("add");
   const [toast, setToast] = useState("");
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editReturnTab, setEditReturnTab] = useState("mine");
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
+
+  useEffect(() => {
+    if ((tab !== "add" || section !== "expense") && editingExpense) setEditingExpense(null);
+  }, [tab, section]);
 
   useEffect(() => {
     const ref = db.ref("staff");
@@ -1208,6 +1726,25 @@ function MainApp({ user }) {
   useEffect(() => {
     const ref = db.ref("expenses/" + user.uid);
     const cb = (snap) => setMyExpenses(objToArr(snap.val()));
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
+  useEffect(() => {
+    const locRef = db.ref("locations"), routerRef = db.ref("routers");
+    const c1 = (snap) => setLocations(objToArr(snap.val()));
+    const c2 = (snap) => setRouters(objToArr(snap.val()));
+    locRef.on("value", c1); routerRef.on("value", c2);
+    return () => { locRef.off("value", c1); routerRef.off("value", c2); };
+  }, []);
+
+  useEffect(() => {
+    const ref = db.ref("attendance/" + user.uid);
+    const cb = (snap) => {
+      const arr = objToArr(snap.val()).map((r) => ({ ...r, date: r.id }));
+      arr.sort((a, b) => (a.date < b.date ? 1 : -1));
+      setMyAttendance(arr);
+    };
     ref.on("value", cb);
     return () => ref.off("value", cb);
   }, [user.uid]);
@@ -1233,6 +1770,29 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!isAdmin) { setAllAttendance([]); return; }
+    const ref = db.ref("attendance");
+    const cb = (snap) => {
+      const all = snap.val() || {};
+      const out = [];
+      Object.entries(all).forEach(([uid, days]) => {
+        Object.entries(days || {}).forEach(([date, val]) => out.push({ date, staffUid: uid, ...val }));
+      });
+      setAllAttendance(out);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) { setStaffSensitiveMap({}); return; }
+    const ref = db.ref("staffSensitive");
+    const cb = (snap) => setStaffSensitiveMap(snap.val() || {});
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isSuperAdmin]);
+
   if (staffMap === null) return <div style={{ padding: 60, textAlign: "center", color: "var(--ink-soft)" }}>Loading…</div>;
   if (!me) return <NoProfileScreen email={user.email} />;
 
@@ -1249,7 +1809,31 @@ function MainApp({ user }) {
     flash("Expense submitted.");
   };
 
-  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn."); };
+  const withdraw = async (expenseId) => { await db.ref("expenses/" + user.uid + "/" + expenseId).remove(); flash("Withdrawn and deleted."); };
+
+  const startEditOwn = (expense) => { setEditingExpense({ ...expense, staffUid: user.uid, editKind: "own" }); setEditReturnTab("mine"); setSection("expense"); setTab("add"); };
+  const startEditAsAdmin = (expense) => { setEditingExpense({ ...expense, editKind: "admin" }); setEditReturnTab("overview"); setSection("expense"); setTab("add"); };
+  const cancelEdit = () => { setEditingExpense(null); setSection("expense"); setTab(editReturnTab); };
+
+  const updateExpense = async (editing, form) => {
+    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
+    const amount = itemsTotal(cleanItems);
+    const updates = { date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), receipt: form.receipt || null };
+    if (editing.editKind === "own") {
+      updates.status = "Pending";
+      updates.submittedAt = new Date().toISOString();
+    } else {
+      updates.lastEditedBy = me.name;
+      updates.lastEditedAt = new Date().toISOString();
+    }
+    await db.ref(`expenses/${editing.staffUid}/${editing.id}`).update(updates);
+    const existingTagNames = tags.map((t) => t.name);
+    const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
+    newTagNames.forEach((t) => db.ref("tags").push({ name: t }));
+    flash(editing.editKind === "own" ? "Claim updated and resubmitted for review." : "Transaction updated.");
+    setEditingExpense(null);
+    setTab(editReturnTab);
+  };
 
   const review = async (staffUid, expenseId, status, note) => {
     const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
@@ -1384,6 +1968,92 @@ function MainApp({ user }) {
   };
   const toggleActive = (uid, val) => db.ref("staff/" + uid + "/active").set(val);
 
+  const addLocation = (name, shiftStart, graceMinutes) => {
+    const clean = (name || "").trim();
+    if (!clean) return;
+    db.ref("locations").push({ name: clean, shiftStart: shiftStart || "09:00", graceMinutes: Number(graceMinutes) || 0 });
+  };
+  const updateLocation = (id, fields) => db.ref("locations/" + id).update(fields);
+  const removeLocation = async (id) => {
+    const updates = { [`locations/${id}`]: null };
+    routers.filter((r) => r.locationId === id).forEach((r) => { updates[`routers/${r.id}`] = null; });
+    await db.ref().update(updates);
+    flash("Location removed.");
+  };
+  const addRouter = (locationId, ssid, bssid) => db.ref("routers").push({ locationId, ssid: ssid.trim(), bssid: bssid.trim() });
+  const removeRouter = (id) => db.ref("routers/" + id).remove();
+  const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
+  const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
+  const saveStaffProfile = (uid, fields) => db.ref("staff/" + uid).update(fields);
+  const saveStaffSensitive = (uid, fields) => db.ref("staffSensitive/" + uid).update(fields);
+
+  const locationsMap = Object.fromEntries(locations.map((l) => [l.id, l]));
+
+  const checkIn = async () => {
+    setAttBusy(true); setAttError("");
+    try {
+      const geo = await getGeoPosition();
+      const now = new Date();
+      const dateKey = localDateKey(now);
+      const loc = me.locationId ? locationsMap[me.locationId] : null;
+      const status = computeAttStatus(localTimeStr(now), loc);
+      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
+        checkInTime: now.toISOString(), checkOutTime: null, method: "gps_remote",
+        geoLat: geo.lat, geoLng: geo.lng, locationId: me.locationId || null, status, checkedInBy: "self",
+      });
+      flash("Checked in.");
+    } catch (err) {
+      setAttError(err.message || "Couldn't check in.");
+    }
+    setAttBusy(false);
+  };
+
+  const requestCheckIn = async (note) => {
+    setAttBusy(true); setAttError("");
+    try {
+      let geo = null;
+      try { geo = await getGeoPosition(); } catch (e) { /* optional for a request */ }
+      const now = new Date();
+      const dateKey = localDateKey(now);
+      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
+        checkInTime: null, checkOutTime: null, method: "admin_manual", status: "awaiting_checkin",
+        requestNote: (note || "").trim(), requestedAt: now.toISOString(),
+        geoLat: geo ? geo.lat : null, geoLng: geo ? geo.lng : null, locationId: me.locationId || null, checkedInBy: null,
+      });
+      flash("Check-in request sent.");
+    } catch (err) {
+      setAttError(err.message || "Couldn't send the request.");
+    }
+    setAttBusy(false);
+  };
+
+  const cancelCheckInRequest = async () => {
+    await db.ref(`attendance/${user.uid}/${localDateKey()}`).remove();
+    flash("Request withdrawn.");
+  };
+
+  const checkOut = async (halfDay) => {
+    setAttBusy(true);
+    const updates = { checkOutTime: new Date().toISOString() };
+    if (halfDay) updates.status = "half_day";
+    await db.ref(`attendance/${user.uid}/${localDateKey()}`).update(updates);
+    flash(halfDay ? "Checked out — marked half day." : "Checked out.");
+    setAttBusy(false);
+  };
+
+  const approveCheckInRequest = async (staffUid, dateKey) => {
+    const staffRec = staffMap[staffUid];
+    const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
+    const now = new Date();
+    const status = computeAttStatus(localTimeStr(now), loc);
+    await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: now.toISOString(), status, checkedInBy: me.name });
+    flash("Check-in approved.");
+  };
+  const rejectCheckInRequest = async (staffUid, dateKey) => {
+    await db.ref(`attendance/${staffUid}/${dateKey}`).remove();
+    flash("Request rejected.");
+  };
+
   const exportCSV = (rows) => {
     const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
@@ -1403,20 +2073,44 @@ function MainApp({ user }) {
   const visibleCategories = isSuperAdmin ? sortedCategories : sortedCategories.filter((c) => me && me.allowedCategories && me.allowedCategories[safeKey(c.name)]);
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
-  const primaryTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "manage", label: "Manage" }]
+  const expenseTabs = isSuperAdmin
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "expenseSettings", label: "Categories & Tags" }]
     : isAdmin
     ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
-    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }];
-  const moreTabs = isAdmin ? [] : [{ id: "analysis", label: "My Analysis" }];
-  const currentTabLabel = [...primaryTabs, ...moreTabs].find((t) => t.id === tab)?.label;
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
+
+  const attendanceTabs = isSuperAdmin
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }, { id: "attendanceSettings", label: "Locations" }]
+    : isAdmin
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }]
+    : [{ id: "attendance", label: "My Attendance" }];
+
+  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : [];
+
+  const goHome = () => setSection("home");
+  const enterExpense = () => { setSection("expense"); setTab("add"); };
+  const enterAttendance = () => { setSection("attendance"); setTab("attendance"); };
+  const enterPeople = () => setSection("people");
+
+  if (section === "home") {
+    return (
+      <HomeScreen me={me} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterPeople={enterPeople}
+        onSignOut={() => auth.signOut()} />
+    );
+  }
+
+  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : "Staff & permissions";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
       <div style={{ padding: isMobile ? "16px 16px 14px" : "22px 28px 18px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14, background: "var(--paper-dark)" }}>
-        <div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
-          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 2 }}>Expense Ledger</div>
+        <div onClick={goHome} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+          <Logo />
+          <div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: "0.1em", color: "var(--ink-soft)", textTransform: "uppercase" }}>← Home</div>
+            <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: isMobile ? 20 : 26, marginTop: 1 }}>{sectionLabel}</div>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
@@ -1428,50 +2122,67 @@ function MainApp({ user }) {
             ))}
           </div>
           <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>{me.name}{isSuperAdmin ? " · Super Admin" : isAdmin ? " · Admin" : ""}</span>
-          {isAdmin ? (
-            <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
-          ) : (
-            <MoreMenu items={[
-              ...moreTabs.map((t) => ({ label: t.label, onClick: () => setTab(t.id) })),
-              { label: "Sign out", danger: true, onClick: () => auth.signOut() },
-            ]} />
-          )}
+          <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
-        {primaryTabs.map((it) => (
-          <button key={it.id} onClick={() => setTab(it.id)} style={{
-            padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600,
-            color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
-          }}>{it.label}</button>
-        ))}
-      </div>
+      {section !== "people" && (
+        <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)", overflowX: "auto" }}>
+          {sectionTabs.map((it) => (
+            <button key={it.id} onClick={() => setTab(it.id)} style={{
+              padding: isMobile ? "12px 14px" : "12px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: isMobile ? 12.5 : 13, fontWeight: 600, whiteSpace: "nowrap",
+              color: tab === it.id ? "var(--ink)" : "var(--ink-soft)", borderBottom: tab === it.id ? "2px solid var(--brand-yellow)" : "2px solid transparent", marginBottom: -1,
+            }}>{it.label}</button>
+          ))}
+        </div>
+      )}
 
       <div style={{ padding: isMobile ? "16px 16px" : "20px 28px" }}>
-        {!isAdmin && !primaryTabs.some((t) => t.id === tab) && (
-          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>{currentTabLabel}</div>
+        {section === "expense" && tab === "add" && (
+          <AddExpense key={editingExpense ? "edit-" + editingExpense.id : "new"}
+            categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
+            editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
         )}
-        {tab === "add" && <AddExpense categories={sortedCategories} tags={tags} onSubmit={addExpense} isMobile={isMobile} dateFormat={dateFormat} />}
-        {tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onExport={exportCSV} dateFormat={dateFormat} />}
-        {tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
-        {tab === "overview" && isAdmin && (
+        {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
+        {section === "expense" && tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
+        {section === "expense" && tab === "overview" && isAdmin && (
           <div>
             {!isSuperAdmin && (
               <div style={{ background: "var(--paper-dark)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>
                 You have access to {visibleCategories.length} of {sortedCategories.length} categories. Totals, charts, and exports below reflect only what you're permitted to see.
               </div>
             )}
-            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} dateFormat={dateFormat} />
+            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
           </div>
         )}
-        {tab === "manage" && isSuperAdmin && (
-          <Manage
-            categories={sortedCategories} tags={tags} staffMap={staffMap} myUid={user.uid}
-            onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
+        {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
+          <ExpenseSettings
+            categories={sortedCategories} onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
             onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
-            onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
+            tags={tags} onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
+          />
+        )}
+
+        {section === "attendance" && tab === "attendance" && (
+          <AttendanceTab
+            me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
+            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
+            attBusy={attBusy} attError={attError} dateFormat={dateFormat}
+          />
+        )}
+        {section === "attendance" && tab === "team" && isAdmin && (
+          <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
+        )}
+        {section === "attendance" && tab === "attendanceSettings" && isSuperAdmin && (
+          <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
+        )}
+
+        {section === "people" && isSuperAdmin && (
+          <PeopleManage
+            staffMap={staffMap} staffSensitiveMap={staffSensitiveMap} myUid={user.uid} categories={sortedCategories} locations={locations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
+            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
+            onSaveProfile={saveStaffProfile} onSaveSensitive={saveStaffSensitive}
           />
         )}
       </div>
