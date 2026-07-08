@@ -22,7 +22,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
   :root {
     --paper: #FAF6EC; --paper-dark: #F1EAD9; --card: #FFFDF6; --ink: #1A1A1A; --ink-soft: #6B6554;
-    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52;
+    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52; --on-leave: #7A6FB0;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--paper-dark); }
@@ -67,7 +67,31 @@ const ATT_STATUS_META = {
   half_day: { color: "var(--paid)", label: "Half day" },
   absent: { color: "var(--rejected)", label: "Absent" },
   awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
+  on_leave: { color: "var(--on-leave)", label: "On Leave" },
 };
+const LEAVE_TYPES = [
+  { id: "sick", label: "Sick" },
+  { id: "home", label: "Home / Annual" },
+  { id: "emergency", label: "Emergency" },
+];
+function leaveLabel(type) { return (LEAVE_TYPES.find((t) => t.id === type) || {}).label || type; }
+// Inclusive day count between two date-only strings (YYYY-MM-DD); halfDay only
+// applies when it's a single-day request, same convention as attendance's checkout half-day toggle.
+function countLeaveDays(fromDate, toDate, halfDay) {
+  if (!fromDate || !toDate) return 0;
+  const start = new Date(fromDate + "T00:00:00");
+  const end = new Date(toDate + "T00:00:00");
+  const diff = Math.round((end - start) / 86400000) + 1;
+  if (diff <= 0) return 0;
+  return halfDay && diff === 1 ? 0.5 : diff;
+}
+function dateRangeArray(fromDate, toDate) {
+  const out = [];
+  let d = new Date(fromDate + "T00:00:00");
+  const end = new Date(toDate + "T00:00:00");
+  while (d <= end) { out.push(localDateKey(d)); d.setDate(d.getDate() + 1); }
+  return out;
+}
 const BAR_COLORS = ["#F5C300", "#2A6A5A", "#B5762B", "#8C3B3B", "#2F3B52", "#7A6FB0", "#3E7CB1", "#C97C2C"];
 
 function fmtNPR(n) {
@@ -1139,7 +1163,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1190,6 +1214,17 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
           <input type="checkbox" checked={!!s.remoteCheckInAllowed} onChange={(e) => onToggleRemote(s.uid, e.target.checked)} />
           Remote check-in allowed
         </label>
+      </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Leave allotted / year:</span>
+        {LEAVE_TYPES.map((lt) => (
+          <label key={lt.id} style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 4 }}>
+            {lt.label}
+            <input type="number" min="0" value={(s.leaveAllotted && s.leaveAllotted[lt.id]) ?? 0}
+              onChange={(e) => onSetLeaveAllotment(s.uid, lt.id, e.target.value)}
+              style={{ ...smallSelect, width: 46, padding: "4px 6px" }} />
+          </label>
+        ))}
       </div>
       {role === "admin" && (
         <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--paper-dark)", borderRadius: 8 }}>
@@ -1343,7 +1378,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1430,14 +1465,14 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1605,6 +1640,153 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
               <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
             </div>
           ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function LeaveTab({ me, myLeaveRequests, dateFormat, onSubmit, onWithdraw, busy }) {
+  const [type, setType] = useState("sick");
+  const [fromDate, setFromDate] = useState(todayStr());
+  const [toDate, setToDate] = useState(todayStr());
+  const [halfDay, setHalfDay] = useState(false);
+  const [note, setNote] = useState("");
+
+  const allotted = (me.leaveAllotted && me.leaveAllotted[type]) || 0;
+  const usedForType = (t) => myLeaveRequests.filter((r) => r.type === t && r.status === "Approved").reduce((sum, r) => sum + (r.days || 0), 0);
+  const days = countLeaveDays(fromDate, toDate, halfDay);
+
+  const submit = () => {
+    if (days <= 0) return;
+    onSubmit({ type, fromDate, toDate, halfDay, days, note: note.trim() });
+    setNote(""); setHalfDay(false);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 14 }}>Request leave</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          {LEAVE_TYPES.map((lt) => (
+            <button key={lt.id} onClick={() => setType(lt.id)} style={{
+              padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              border: "1.5px solid " + (type === lt.id ? "var(--brand-yellow)" : "var(--line)"),
+              background: type === lt.id ? "var(--brand-yellow)" : "var(--card)", color: "var(--ink)",
+            }}>{lt.label}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 14 }}>
+          Balance: <b style={{ color: "var(--approved)" }}>{Math.max(allotted - usedForType(type), 0)}</b> of {allotted} days left this year
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Field label="From"><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={inputStyle} /></Field>
+          <Field label="To"><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} /></Field>
+        </div>
+        {fromDate === toDate && (
+          <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
+            <input type="checkbox" checked={halfDay} onChange={(e) => setHalfDay(e.target.checked)} /> Half day
+          </label>
+        )}
+        <Field label="Note (optional)"><textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} /></Field>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", margin: "8px 0" }}>{days > 0 ? `${days} day${days === 1 ? "" : "s"}` : "Pick valid dates"}</div>
+        <button onClick={submit} disabled={busy || days <= 0} style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: busy ? "default" : "pointer" }}>
+          {busy ? "Submitting…" : "Submit request"}
+        </button>
+      </Card>
+
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>My requests</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {myLeaveRequests.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No leave requested yet.</div>}
+          {myLeaveRequests.map((r) => (
+            <div key={r.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{leaveLabel(r.type)}</div>
+                <StatusBadge status={r.status} />
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                {fmtDate(r.fromDate, dateFormat)}{r.fromDate !== r.toDate ? " – " + fmtDate(r.toDate, dateFormat) : ""} · {r.days} day{r.days === 1 ? "" : "s"}
+              </div>
+              {r.note && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 4, fontStyle: "italic" }}>"{r.note}"</div>}
+              {r.status === "Rejected" && r.reviewNote && <div style={{ fontSize: 11.5, color: "var(--rejected)", marginTop: 4 }}>Admin note: {r.reviewNote}</div>}
+              {r.status === "Pending" && <button onClick={() => onWithdraw(r.id)} style={{ ...ghostBtn, marginTop: 8, fontSize: 11.5, padding: "5px 10px" }}>Withdraw</button>}
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function TeamLeave({ allLeaveRequests, staffMap, dateFormat, onApprove, onReject, onExport }) {
+  const [reviewNoteDraft, setReviewNoteDraft] = useState({});
+  const pending = allLeaveRequests.filter((r) => r.status === "Pending");
+  const todayKey = localDateKey();
+  const onLeaveToday = allLeaveRequests.filter((r) => r.status === "Approved" && r.fromDate <= todayKey && r.toDate >= todayKey);
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Pending requests ({pending.length})</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          {pending.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nothing pending.</div>}
+          {pending.map((r) => {
+            const s = staffMap[r.staffUid] || {};
+            return (
+              <div key={r.staffUid + r.id} style={{ borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || r.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {leaveLabel(r.type)}</span></div>
+                    <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                      {fmtDate(r.fromDate, dateFormat)}{r.fromDate !== r.toDate ? " – " + fmtDate(r.toDate, dateFormat) : ""} · {r.days} day{r.days === 1 ? "" : "s"}
+                    </div>
+                    {r.note && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 2, fontStyle: "italic" }}>"{r.note}"</div>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <input placeholder="Note (optional, shown on reject)" value={reviewNoteDraft[r.id] || ""} onChange={(e) => setReviewNoteDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                    style={{ ...inputStyle, flex: 1, minWidth: 160, fontSize: 12.5 }} />
+                  <button onClick={() => onApprove(r.staffUid, r.id, reviewNoteDraft[r.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Approve</button>
+                  <button onClick={() => onReject(r.staffUid, r.id, reviewNoteDraft[r.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>On leave today</div>
+        {onLeaveToday.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nobody's on approved leave today.</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {onLeaveToday.map((r) => {
+            const s = staffMap[r.staffUid] || {};
+            return (
+              <div key={r.staffUid + r.id} style={{ background: "var(--paper-dark)", borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 600 }}>
+                {s.name || r.staffUid} · {leaveLabel(r.type)}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>All leave requests</div>
+          <button onClick={() => onExport(allLeaveRequests)} style={ghostBtn}>Export CSV</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {allLeaveRequests.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>None yet.</div>}
+          {allLeaveRequests.map((r) => {
+            const s = staffMap[r.staffUid] || {};
+            return (
+              <div key={r.staffUid + r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13, gap: 8, flexWrap: "wrap" }}>
+                <span>{s.name || r.staffUid} · {leaveLabel(r.type)} · {fmtDate(r.fromDate, dateFormat)}{r.fromDate !== r.toDate ? "–" + fmtDate(r.toDate, dateFormat) : ""} · {r.days}d</span>
+                <StatusBadge status={r.status} />
+              </div>
+            );
+          })}
         </div>
       </Card>
     </div>
@@ -2035,6 +2217,9 @@ function MainApp({ user }) {
   const [routers, setRouters] = useState([]);
   const [myAttendance, setMyAttendance] = useState([]);
   const [allAttendance, setAllAttendance] = useState([]);
+  const [myLeaveRequests, setMyLeaveRequests] = useState([]);
+  const [allLeaveRequests, setAllLeaveRequests] = useState([]);
+  const [leaveBusy, setLeaveBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
   const [attError, setAttError] = useState("");
@@ -2099,6 +2284,17 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [user.uid]);
 
+  useEffect(() => {
+    const ref = db.ref("leaveRequests/" + user.uid);
+    const cb = (snap) => {
+      const arr = objToArr(snap.val());
+      arr.sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
+      setMyLeaveRequests(arr);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
   const me = staffMap ? staffMap[user.uid] : null;
   const myRole = staffRole(me);
   const isAdmin = myRole === "admin" || myRole === "superadmin";
@@ -2130,6 +2326,22 @@ function MainApp({ user }) {
         Object.entries(days || {}).forEach(([date, val]) => out.push({ date, staffUid: uid, ...val }));
       });
       setAllAttendance(out);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) { setAllLeaveRequests([]); return; }
+    const ref = db.ref("leaveRequests");
+    const cb = (snap) => {
+      const all = snap.val() || {};
+      const out = [];
+      Object.entries(all).forEach(([uid, reqs]) => {
+        Object.entries(reqs || {}).forEach(([id, val]) => out.push({ id, staffUid: uid, ...val }));
+      });
+      out.sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
+      setAllLeaveRequests(out);
     };
     ref.on("value", cb);
     return () => ref.off("value", cb);
@@ -2512,6 +2724,70 @@ function MainApp({ user }) {
     flash("Request rejected.");
   };
 
+  const submitLeaveRequest = async (form) => {
+    setLeaveBusy(true);
+    try {
+      const newRef = db.ref("leaveRequests/" + user.uid).push();
+      await newRef.set({
+        staffName: me.name, type: form.type, fromDate: form.fromDate, toDate: form.toDate,
+        halfDay: !!form.halfDay, days: form.days, note: form.note || "",
+        status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "",
+      });
+      flash("Leave request submitted.");
+    } catch (err) {
+      flash("Couldn't submit: " + err.message);
+    }
+    setLeaveBusy(false);
+  };
+
+  const withdrawLeaveRequest = async (id) => {
+    await db.ref("leaveRequests/" + user.uid + "/" + id).remove();
+    flash("Withdrawn.");
+  };
+
+  // Approving writes an "on_leave" attendance record for each date in the range —
+  // but only where no real check-in already exists, so we never clobber genuine attendance.
+  const approveLeaveRequest = async (staffUid, id, note) => {
+    const req = allLeaveRequests.find((r) => r.staffUid === staffUid && r.id === id);
+    await db.ref(`leaveRequests/${staffUid}/${id}`).update({ status: "Approved", reviewNote: note || "", reviewedBy: me.name, reviewedAt: new Date().toISOString() });
+    if (req) {
+      const dates = dateRangeArray(req.fromDate, req.toDate);
+      for (const dk of dates) {
+        const snap = await db.ref(`attendance/${staffUid}/${dk}`).once("value");
+        const existing = snap.val();
+        if (!existing || !existing.checkInTime) {
+          await db.ref(`attendance/${staffUid}/${dk}`).set({
+            status: "on_leave", method: "leave", leaveType: req.type, leaveRequestId: id,
+            checkInTime: null, checkOutTime: null,
+          });
+        }
+      }
+    }
+    flash("Leave approved.");
+  };
+
+  const rejectLeaveRequest = async (staffUid, id, note) => {
+    await db.ref(`leaveRequests/${staffUid}/${id}`).update({ status: "Rejected", reviewNote: note || "", reviewedBy: me.name, reviewedAt: new Date().toISOString() });
+    flash("Leave rejected.");
+  };
+
+  const setLeaveAllotment = (uid, type, value) => db.ref(`staff/${uid}/leaveAllotted/${type}`).set(Number(value) || 0);
+
+  const exportLeaveCSV = (rows) => {
+    const header = ["Staff", "Type", "From", "To", "Days", "Status", "Note", "Submitted At", "Review Note"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => {
+      const s = staffMap[r.staffUid] || {};
+      const cells = [s.name || r.staffUid, leaveLabel(r.type), r.fromDate, r.toDate, r.days, r.status, r.note, r.submittedAt, r.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      lines.push(cells.join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `mypower_leave_${todayStr()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
   const exportCSV = (rows) => {
     const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
@@ -2538,10 +2814,10 @@ function MainApp({ user }) {
     : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
 
   const attendanceTabs = isSuperAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }, { id: "attendanceSettings", label: "Locations" }]
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceSettings", label: "Locations" }]
     : isAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "team", label: "Team Attendance" }]
-    : [{ id: "attendance", label: "My Attendance" }];
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }]
+    : [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }];
 
   const profileTabs = isAdmin
     ? [{ id: "myProfile", label: "My Profile" }, { id: "staffProfiles", label: "Staff Profiles" }]
@@ -2633,8 +2909,14 @@ function MainApp({ user }) {
             attBusy={attBusy} attError={attError} dateFormat={dateFormat}
           />
         )}
+        {section === "attendance" && tab === "leave" && (
+          <LeaveTab me={me} myLeaveRequests={myLeaveRequests} dateFormat={dateFormat} onSubmit={submitLeaveRequest} onWithdraw={withdrawLeaveRequest} busy={leaveBusy} />
+        )}
         {section === "attendance" && tab === "team" && isAdmin && (
           <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
+        )}
+        {section === "attendance" && tab === "teamLeave" && isAdmin && (
+          <TeamLeave allLeaveRequests={allLeaveRequests} staffMap={staffMap} dateFormat={dateFormat} onApprove={approveLeaveRequest} onReject={rejectLeaveRequest} onExport={exportLeaveCSV} />
         )}
         {section === "attendance" && tab === "attendanceSettings" && isSuperAdmin && (
           <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
@@ -2656,7 +2938,7 @@ function MainApp({ user }) {
             staffMap={staffMap} allProfiles={allProfiles} myUid={user.uid} categories={sortedCategories} locations={locations}
             departments={departments} designations={designations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
-            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed}
+            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetLeaveAllotment={setLeaveAllotment}
             onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
