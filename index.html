@@ -386,7 +386,7 @@ function LoginScreen() {
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", color: "var(--ink-soft)", textTransform: "uppercase" }}>MY POWER</div>
         <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 24, marginTop: 2, marginBottom: 20 }}>Expense Ledger</div>
         <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-          <Field label="Email">
+          <Field label="User ID">
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@mypower.com" />
           </Field>
           <Field label="PIN / password">
@@ -409,7 +409,7 @@ function NoProfileScreen({ email }) {
       <Card style={{ maxWidth: 420, textAlign: "center" }}>
         <div style={{ fontFamily: "'Lora', serif", fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Almost there</div>
         <div style={{ fontSize: 13.5, color: "var(--ink-soft)", marginBottom: 14 }}>
-          Your login ({email}) works, but isn't linked to a staff profile yet. Ask your admin to add you in the Manage tab.
+          Your login ({email}) works, but isn't linked to a staff profile yet. Ask your admin to add you in the People section.
         </div>
         <button onClick={() => auth.signOut()} style={ghostBtn}>Sign out</button>
       </Card>
@@ -464,7 +464,9 @@ function TagPicker({ value, onChange, tags, placeholder, fieldStyle }) {
             </div>
           ))}
           {q && !exactMatch && (
-            <div onMouseDown={() => pick(value.trim())}
+            <div onMouseDown={() => {
+              if (window.confirm(`Create new tag "${value.trim()}"?\n\nDouble-check it's not already on the list under a slightly different spelling before adding a new one.`)) pick(value.trim());
+            }}
               style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", color: "var(--ink-soft)", borderTop: matches.length ? "1px solid var(--line)" : "none" }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--paper-dark)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
@@ -1163,7 +1165,7 @@ function RoleButtons({ role, onChange, disabled }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1182,17 +1184,22 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
           <div>{s.name} {isMe && <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>(you)</span>}</div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
             {s.email ? (
-              <span onClick={() => copy(s.email, "email")} title="Click to copy login email"
+              <span onClick={() => copy(s.email, "email")} title="Click to copy User ID"
                 style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
                 {copied === "email" ? "Copied!" : s.email}
               </span>
             ) : (
-              <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>email not on record — check Firebase Console</span>
+              <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontStyle: "italic" }}>User ID not on record — check Firebase Console</span>
             )}
-            <span onClick={() => copy(s.uid, "uid")} title="Click to copy user ID"
+            <span onClick={() => copy(s.uid, "recordId")} title="Click to copy internal record ID"
               style={{ fontSize: 10.5, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer" }}>
-              {copied === "uid" ? "Copied!" : `UID: ${s.uid}`}
+              {copied === "recordId" ? "Copied!" : `Record ID: ${s.uid}`}
             </span>
+            {s.email && !isMe && (
+              <span onClick={() => onSendResetLink(s.email)} style={{ fontSize: 10.5, color: "var(--paid)", cursor: "pointer", textDecoration: "underline" }}>
+                Send reset link
+              </span>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -1378,7 +1385,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1450,7 +1457,7 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
       <CollapsibleCard storageKey="createStaff" title="Create a staff login">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
           <Field label="Name"><input value={newStaffName} onChange={(e) => setNewStaffName(e.target.value)} style={inputStyle} /></Field>
-          <Field label="Email"><input value={newStaffEmail} onChange={(e) => setNewStaffEmail(e.target.value)} placeholder="name@mypower.com" style={inputStyle} /></Field>
+          <Field label="User ID"><input value={newStaffEmail} onChange={(e) => setNewStaffEmail(e.target.value)} placeholder="name@mypower.com" style={inputStyle} /></Field>
           <Field label="PIN (6+ chars)"><input value={newStaffPin} onChange={(e) => setNewStaffPin(e.target.value)} style={inputStyle} /></Field>
           <button onClick={createStaff} disabled={busy} style={{ ...ghostBtn, height: 42 }}>{busy ? "Creating…" : "Create"}</button>
         </div>
@@ -1458,21 +1465,21 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
-        subtitle='Login email and user ID are shown under each name — tap either to copy. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Personal profile details now live in their own Profile section, not here. Firebase never reveals a saved password to anyone, admin included; if someone&apos;s locked out, use the "Reset password" option in the Firebase Console (Authentication → Users), or recreate their login below with a new PIN.'>
+        subtitle='User ID and internal record ID are shown under each name — tap either to copy. "Send reset link" emails that person a link to set a new PIN themselves. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Personal profile details now live in their own Profile section, not here. Firebase never reveals a saved PIN to anyone, admin included — if someone forgot theirs, send a reset link, or recreate their login below with a new PIN.'>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -1974,6 +1981,64 @@ function AdminSetSummary({ profile }) {
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function AccountSettings({ onChangeUserId, onChangePin }) {
+  const [pin1, setPin1] = useState("");
+  const [newUserId, setNewUserId] = useState("");
+  const [msg1, setMsg1] = useState("");
+  const [busy1, setBusy1] = useState(false);
+
+  const [pin2, setPin2] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [msg2, setMsg2] = useState("");
+  const [busy2, setBusy2] = useState(false);
+
+  const submitUserId = async () => {
+    if (!pin1 || !newUserId.trim()) { setMsg1("Fill in both fields."); return; }
+    setBusy1(true); setMsg1("");
+    try {
+      await onChangeUserId(pin1, newUserId.trim());
+      setMsg1("User ID updated."); setPin1(""); setNewUserId("");
+    } catch (err) { setMsg1(err.message); }
+    setBusy1(false);
+  };
+  const submitPin = async () => {
+    if (!pin2 || newPin.length < 6) { setMsg2("Enter your current PIN and a new PIN of at least 6 characters."); return; }
+    setBusy2(true); setMsg2("");
+    try {
+      await onChangePin(pin2, newPin);
+      setMsg2("PIN updated."); setPin2(""); setNewPin("");
+    } catch (err) { setMsg2(err.message); }
+    setBusy2(false);
+  };
+
+  return (
+    <Card>
+      <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Account & login</div>
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 16 }}>You'll need your current PIN to make either change below. Forgot it entirely? Ask your admin to send you a reset link.</div>
+      <div style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Change User ID</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <Field label="Current PIN"><input type="password" value={pin1} onChange={(e) => setPin1(e.target.value)} style={inputStyle} /></Field>
+            <Field label="New User ID"><input type="email" value={newUserId} onChange={(e) => setNewUserId(e.target.value)} placeholder="name@mypower.com" style={inputStyle} /></Field>
+            <button onClick={submitUserId} disabled={busy1} style={ghostBtn}>{busy1 ? "Updating…" : "Update User ID"}</button>
+            {msg1 && <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{msg1}</div>}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Change PIN</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <Field label="Current PIN"><input type="password" value={pin2} onChange={(e) => setPin2(e.target.value)} style={inputStyle} /></Field>
+            <Field label="New PIN (6+ characters)"><input type="password" value={newPin} onChange={(e) => setNewPin(e.target.value)} style={inputStyle} /></Field>
+            <button onClick={submitPin} disabled={busy2} style={ghostBtn}>{busy2 ? "Updating…" : "Update PIN"}</button>
+            {msg2 && <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>{msg2}</div>}
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -2545,6 +2610,42 @@ function MainApp({ user }) {
       await secondary.delete();
     }
   };
+  const sendResetLink = async (email) => {
+    try {
+      await auth.sendPasswordResetEmail(email);
+      flash("Reset link sent to " + email + ".");
+    } catch (err) {
+      flash("Couldn't send reset link: " + (err.message || "unknown error"));
+    }
+  };
+  const friendlyAuthError = (err) => {
+    const code = err && err.code;
+    if (code === "auth/wrong-password") return "That PIN doesn't match your current one.";
+    if (code === "auth/invalid-email") return "That doesn't look right — a User ID still needs to be in an email-style format, e.g. name@mypower.com.";
+    if (code === "auth/email-already-in-use") return "That User ID is already used by another account.";
+    if (code === "auth/weak-password") return "PIN needs to be at least 6 characters.";
+    if (code === "auth/requires-recent-login") return "For security, please sign out and back in, then try again.";
+    return (err && err.message) || "Something went wrong.";
+  };
+  const changeMyUserId = async (currentPin, newUserId) => {
+    const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPin);
+    try {
+      await user.reauthenticateWithCredential(cred);
+      await user.updateEmail(newUserId);
+      await db.ref("staff/" + user.uid + "/email").set(newUserId);
+    } catch (err) {
+      throw new Error(friendlyAuthError(err));
+    }
+  };
+  const changeMyPin = async (currentPin, newPin) => {
+    const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPin);
+    try {
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(newPin);
+    } catch (err) {
+      throw new Error(friendlyAuthError(err));
+    }
+  };
   const setRole = (uid, role) => db.ref("staff/" + uid + "/role").set(role);
   const toggleCategoryAccess = (uid, categoryKey, allowed) => {
     if (allowed) db.ref(`staff/${uid}/allowedCategories/${categoryKey}`).set(true);
@@ -2923,9 +3024,12 @@ function MainApp({ user }) {
         )}
 
         {section === "profile" && tab === "myProfile" && (
-          <MyProfileForm profile={myProfile} sensitive={mySensitive} myName={me.name}
-            onSaveDraft={saveMyProfileDraft} onSubmit={submitMyProfile} onRequestEdit={requestProfileEdit} onCancelRequest={cancelProfileEditRequest}
-            busy={profileBusy} />
+          <div style={{ display: "grid", gap: 20, maxWidth: 620 }}>
+            <MyProfileForm profile={myProfile} sensitive={mySensitive} myName={me.name}
+              onSaveDraft={saveMyProfileDraft} onSubmit={submitMyProfile} onRequestEdit={requestProfileEdit} onCancelRequest={cancelProfileEditRequest}
+              busy={profileBusy} />
+            <AccountSettings onChangeUserId={changeMyUserId} onChangePin={changeMyPin} />
+          </div>
         )}
         {section === "profile" && tab === "staffProfiles" && isAdmin && (
           <StaffProfilesAdmin staffMap={staffMap} profiles={allProfiles} sensitiveMap={staffSensitiveMap} isSuperAdmin={isSuperAdmin} myName={me.name}
@@ -2939,6 +3043,7 @@ function MainApp({ user }) {
             departments={departments} designations={designations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetLeaveAllotment={setLeaveAllotment}
+            onSendResetLink={sendResetLink}
             onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
