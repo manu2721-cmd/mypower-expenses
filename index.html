@@ -1592,7 +1592,6 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
   const [halfDayToggle, setHalfDayToggle] = useState(false);
   const dateKey = localDateKey();
   const today = myAttendance.find((a) => a.date === dateKey);
-  const canSelfCheckIn = !!me.remoteCheckInAllowed;
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1603,21 +1602,22 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
         {!today && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Not checked in yet</div>
-            {canSelfCheckIn ? (
-              <button onClick={onCheckIn} disabled={attBusy}
-                style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
-                {attBusy ? "Getting your location…" : "Check in"}
-              </button>
-            ) : requesting ? (
+            {!requesting ? (
+              <div>
+                <button onClick={onCheckIn} disabled={attBusy}
+                  style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
+                  {attBusy ? "Getting your location…" : "Check in"}
+                </button>
+                <button onClick={() => setRequesting(true)} style={{ ...ghostBtn, marginTop: 8, width: "100%", fontSize: 12 }}>Trouble checking in? Request check-in instead</button>
+              </div>
+            ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (e.g. WiFi is down)" style={inputStyle} />
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (e.g. GPS not working)" style={inputStyle} />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => { onRequestCheckIn(note); setRequesting(false); setNote(""); }} disabled={attBusy} style={{ ...ghostBtn, flex: 1 }}>{attBusy ? "Sending…" : "Send request"}</button>
                   <button onClick={() => setRequesting(false)} style={ghostBtn}>Cancel</button>
                 </div>
               </div>
-            ) : (
-              <button onClick={() => setRequesting(true)} style={ghostBtn}>Request check-in</button>
             )}
             {attError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 8 }}>{attError}</div>}
           </div>
