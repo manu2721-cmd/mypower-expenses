@@ -2880,9 +2880,10 @@ function MainApp({ user }) {
   const approveCheckInRequest = async (staffUid, dateKey) => {
     const staffRec = staffMap[staffUid];
     const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
-    const now = new Date();
-    const status = computeAttStatus(localTimeStr(now), loc);
-    await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: now.toISOString(), status, checkedInBy: me.name });
+    const rec = allAttendance.find((a) => a.staffUid === staffUid && a.date === dateKey);
+    const checkTime = rec && rec.requestedAt ? new Date(rec.requestedAt) : new Date();
+    const status = computeAttStatus(localTimeStr(checkTime), loc);
+    await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: checkTime.toISOString(), status, checkedInBy: me.name });
     flash("Check-in approved.");
   };
   const rejectCheckInRequest = async (staffUid, dateKey) => {
