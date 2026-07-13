@@ -134,6 +134,46 @@ function getGeoPosition() {
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
 }
+// ---------- Item-level categories (with fallback for pre-migration expenses that
+// only had one category on the whole voucher) ----------
+function expenseCategories(e) {
+  const fromItems = (e.items || []).map((it) => it.category).filter(Boolean);
+  if (fromItems.length > 0) return [...new Set(fromItems)];
+  return e.category ? [e.category] : [];
+}
+function expenseCategoryLabel(e) {
+  const cats = expenseCategories(e);
+  if (cats.length === 0) return "—";
+  if (cats.length === 1) return cats[0];
+  return cats.join(", ");
+}
+// Receipts: new records store an array (receipts[]); old records stored a single
+// base64 string (receipt). This always returns an array so display code doesn't
+// need to know which shape it's reading.
+function expenseReceipts(e) {
+  if (e.receipts && e.receipts.length > 0) return e.receipts;
+  if (e.receipt) return [e.receipt];
+  return [];
+}
+// Spend by category, split at item level (falls back to attributing the whole
+// voucher amount to its legacy single category for pre-migration records).
+function spendByCategory(expenses) {
+  const m = {};
+  expenses.forEach((e) => {
+    const hasItemCats = e.items && e.items.some((it) => it.category);
+    if (hasItemCats) {
+      e.items.forEach((it) => {
+        const cat = it.category || "Uncategorized";
+        const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+        m[cat] = (m[cat] || 0) + subtotal;
+      });
+    } else {
+      const cat = e.category || "Uncategorized";
+      m[cat] = (m[cat] || 0) + e.amount;
+    }
+  });
+  return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+}
 function objToArr(obj) {
   return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
 }
@@ -530,30 +570,25 @@ function CategoryPicker({ value, onChange, categories, placeholder }) {
 }
 
 function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat }) {
-  const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", qty: 1, unitPrice: "" });
+  const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", category: categories[0]?.name || "", qty: 1, unitPrice: "" });
   const buildForm = () => {
     if (editingExpense) {
       return {
         date: editingExpense.date || todayStr(),
-        category: editingExpense.category || categories[0]?.name || "",
         paymentMode: editingExpense.paymentMode || PAYMENT_MODES[0],
         note: editingExpense.note || "",
         items: editingExpense.items && editingExpense.items.length > 0
-          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, qty: it.qty, unitPrice: it.unitPrice }))
+          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, category: it.category || editingExpense.category || categories[0]?.name || "", qty: it.qty, unitPrice: it.unitPrice }))
           : [emptyItem()],
-        receipt: editingExpense.receipt || null,
+        receipts: expenseReceipts(editingExpense),
       };
     }
-    return { date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null };
+    return { date: todayStr(), paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipts: [] };
   };
   const [form, setForm] = useState(buildForm);
   const [submitting, setSubmitting] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [fileError, setFileError] = useState("");
-
-  useEffect(() => {
-    if (!form.category && categories[0]) setForm((f) => ({ ...f, category: categories[0].name }));
-  }, [categories]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const updateItem = (id, field, value) => setForm((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? { ...it, [field]: value } : it)) }));
@@ -566,19 +601,19 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
     setFileError(""); setCompressing(true);
     try {
       const dataUrl = await resizeImageFile(file);
-      setForm((f) => ({ ...f, receipt: dataUrl }));
+      setForm((f) => ({ ...f, receipts: [...f.receipts, dataUrl] }));
     } catch (err) {
       setFileError("Could not process that photo — try a different one.");
     }
     setCompressing(false);
     e.target.value = "";
   };
-  const removeReceipt = () => setForm((f) => ({ ...f, receipt: null }));
+  const removeReceipt = (idx) => setForm((f) => ({ ...f, receipts: f.receipts.filter((_, i) => i !== idx) }));
 
   const total = itemsTotal(form.items);
-  const hasValidRow = form.items.some((it) => it.tag.trim() && Number(it.qty) > 0 && Number(it.unitPrice) > 0);
+  const hasValidRow = form.items.some((it) => it.tag.trim() && it.category && Number(it.qty) > 0 && Number(it.unitPrice) > 0);
   const canSubmit = hasValidRow && total > 0;
-  let blockReason = !hasValidRow ? "Add at least one item with a quantity and a unit price above zero." : "";
+  let blockReason = !hasValidRow ? "Add at least one item with an item name, category, quantity and unit price above zero." : "";
 
   const submit = async (e) => {
     e.preventDefault();
@@ -588,7 +623,7 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
       await onUpdate(editingExpense, form);
     } else {
       await onSubmit(form);
-      setForm({ date: todayStr(), category: categories[0]?.name || "", paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipt: null });
+      setForm({ date: todayStr(), paymentMode: PAYMENT_MODES[0], note: "", items: [emptyItem()], receipts: [] });
     }
     setSubmitting(false);
   };
@@ -602,99 +637,70 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
         {editingExpense && <button type="button" onClick={onCancelEdit} style={{ ...ghostBtn, fontSize: 12 }}>Cancel</button>}
       </div>
       <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
-          <Field label="Date">
-            <input type="date" value={form.date} onChange={set("date")} required style={inputStyle} />
-            {dateFormat === "BS" && form.date && (
-              <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>≈ {fmtDateBS(form.date)}</div>
-            )}
-          </Field>
-          <Field label="Category">
-            <CategoryPicker value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v }))} categories={categories} placeholder="Type to search categories…" />
-          </Field>
-        </div>
+        <Field label="Date">
+          <input type="date" value={form.date} onChange={set("date")} required style={{ ...inputStyle, maxWidth: isMobile ? "100%" : 220 }} />
+          {dateFormat === "BS" && form.date && (
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>≈ {fmtDateBS(form.date)}</div>
+          )}
+        </Field>
 
-        <Field label="Items">
-          {isMobile ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              {form.items.map((it) => {
-                const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
-                return (
-                  <div key={it.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 8, background: "var(--paper)" }}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
-                          placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, fontSize: 14 }} />
-                      </div>
-                      <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
-                        style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
-                          color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 22, lineHeight: 1, padding: "0 4px" }}>×</button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Qty</div>
-                        <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
-                          style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Unit price</div>
-                        <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
-                          placeholder="0" style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Subtotal</div>
-                        <div style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: "var(--ink-soft)" }}>
-                          {subtotal > 0 ? fmtNPR(subtotal) : "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, fontSize: 11, color: "var(--ink-soft)", padding: "0 2px" }}>
-                <span>Item / tag</span><span>Qty</span><span>Unit price</span><span>Subtotal</span><span></span>
-              </div>
-              {form.items.map((it) => {
-                const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
-                return (
-                  <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 70px 90px 90px 28px", gap: 6, alignItems: "center" }}>
-                    <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
-                      placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, padding: "7px 9px", fontSize: 13 }} />
-                    <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
-                      style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                    <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
-                      placeholder="0" style={{ ...inputStyle, padding: "7px 9px", fontSize: 13, fontFamily: "'IBM Plex Mono', monospace" }} />
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: "var(--ink-soft)", textAlign: "right", paddingRight: 4 }}>
-                      {subtotal > 0 ? fmtNPR(subtotal) : "—"}
-                    </div>
+        <Field label="Items" plain>
+          <div style={{ display: "grid", gap: 10 }}>
+            {form.items.map((it, idx) => {
+              const subtotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+              return (
+                <div key={it.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 8, background: "var(--paper)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>Item {idx + 1}</span>
                     <button type="button" onClick={() => removeItemRow(it.id)} disabled={form.items.length === 1}
                       style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
-                        color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 18, lineHeight: 1 }}>×</button>
+                        color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 20, lineHeight: 1, padding: "0 4px" }}>×</button>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
+                    placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, fontSize: 14 }} />
+                  <CategoryPicker value={it.category} onChange={(v) => updateItem(it.id, "category", v)} categories={categories} placeholder="Category for this item…" />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Qty</div>
+                      <input type="number" min="0" step="1" value={it.qty} onChange={(e) => updateItem(it.id, "qty", e.target.value)}
+                        style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Unit price</div>
+                      <input type="number" min="0" step="0.01" value={it.unitPrice} onChange={(e) => updateItem(it.id, "unitPrice", e.target.value)}
+                        placeholder="0" style={{ ...inputStyle, padding: "8px 9px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace" }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Subtotal</div>
+                      <div style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: "var(--ink-soft)" }}>
+                        {subtotal > 0 ? fmtNPR(subtotal) : "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <button type="button" onClick={addItemRow} style={{ ...ghostBtn, marginTop: 8, alignSelf: "start", width: isMobile ? "100%" : "auto" }}>+ Add item</button>
         </Field>
 
-        <Field label="Receipt / bill photo (optional)" plain>
-          {!form.receipt ? (
-            <div>
-              <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
-                style={{ fontSize: 13 }} />
-              {compressing && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>Compressing photo…</div>}
-              {fileError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 4 }}>{fileError}</div>}
-            </div>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <img src={form.receipt} alt="Receipt preview" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
-              <button type="button" onClick={removeReceipt} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 12 }}>Remove photo</button>
-            </div>
-          )}
+        <Field label="Receipt / bill photos (optional)" plain>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: form.receipts.length > 0 ? 8 : 0 }}>
+            {form.receipts.map((r, idx) => (
+              <div key={idx} style={{ position: "relative" }}>
+                <img src={r} alt="Receipt preview" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+                <button type="button" onClick={() => removeReceipt(idx)}
+                  style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--line)",
+                    background: "var(--card)", color: "var(--rejected)", fontSize: 13, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+              </div>
+            ))}
+          </div>
+          <div>
+            <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
+              style={{ fontSize: 13 }} />
+            {compressing && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>Compressing photo…</div>}
+            {fileError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 4 }}>{fileError}</div>}
+          </div>
         </Field>
 
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
@@ -773,19 +779,24 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
           {filtered.map((e) => (
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                {e.receipt && (
-                  <button onClick={() => setLightboxSrc(e.receipt)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
-                    <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
-                  </button>
+                {expenseReceipts(e).length > 0 && (
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setLightboxSrc(expenseReceipts(e)[0])} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
+                      <img src={expenseReceipts(e)[0]} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+                    </button>
+                    {expenseReceipts(e).length > 1 && (
+                      <span style={{ position: "absolute", bottom: -4, right: -4, background: "var(--ink)", color: "var(--paper)", fontSize: 9.5, fontWeight: 600, borderRadius: 8, padding: "1px 4px" }}>+{expenseReceipts(e).length - 1}</span>
+                    )}
+                  </div>
                 )}
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.category}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{expenseCategoryLabel(e)}</div>
                   <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
                   {e.items && e.items.length > 0 && (
                     <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
                       {e.items.map((it, i) => (
                         <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                          {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                          {it.tag}{expenseCategories(e).length > 1 && it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
                         </div>
                       ))}
                     </div>
@@ -829,10 +840,7 @@ function MyAnalysis({ expenses }) {
 
   const filtered = useMemo(() => expenses.filter((e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate)), [expenses, fromDate, toDate]);
 
-  const byCategory = useMemo(() => {
-    const m = {}; filtered.forEach((e) => { m[e.category] = (m[e.category] || 0) + e.amount; });
-    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [filtered]);
+  const byCategory = useMemo(() => spendByCategory(filtered), [filtered]);
 
   const byTag = useMemo(() => {
     const m = {};
@@ -884,7 +892,7 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
 
   const filtered = useMemo(() => expenses.filter((e) =>
     (staffFilter === "All" || e.staffName === staffFilter) &&
-    (catFilter === "All" || e.category === catFilter) &&
+    (catFilter === "All" || expenseCategories(e).includes(catFilter)) &&
     (statusFilter === "All" || e.status === statusFilter) &&
     (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate)
   ).sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, staffFilter, catFilter, statusFilter, fromDate, toDate]);
@@ -901,10 +909,7 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
     return t;
   }, [filtered]);
 
-  const byCategory = useMemo(() => {
-    const m = {}; filtered.forEach((e) => { m[e.category] = (m[e.category] || 0) + e.amount; });
-    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [filtered]);
+  const byCategory = useMemo(() => spendByCategory(filtered), [filtered]);
 
   const byTag = useMemo(() => {
     const m = {};
@@ -960,19 +965,24 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
           {filtered.map((e) => (
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "13px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                {e.receipt && (
-                  <button onClick={() => setLightboxSrc(e.receipt)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
-                    <img src={e.receipt} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
-                  </button>
+                {expenseReceipts(e).length > 0 && (
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setLightboxSrc(expenseReceipts(e)[0])} style={{ border: "none", background: "none", padding: 0, cursor: "pointer" }}>
+                      <img src={expenseReceipts(e)[0]} alt="Receipt" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} />
+                    </button>
+                    {expenseReceipts(e).length > 1 && (
+                      <span style={{ position: "absolute", bottom: -4, right: -4, background: "var(--ink)", color: "var(--paper)", fontSize: 9.5, fontWeight: 600, borderRadius: 8, padding: "1px 4px" }}>+{expenseReceipts(e).length - 1}</span>
+                    )}
+                  </div>
                 )}
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.category}</span></div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {expenseCategoryLabel(e)}</span></div>
                   <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
                   {e.items && e.items.length > 0 && (
                     <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
                       {e.items.map((it, i) => (
                         <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                          {it.tag} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                          {it.tag}{expenseCategories(e).length > 1 && it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
                         </div>
                       ))}
                     </div>
@@ -2394,7 +2404,12 @@ function MainApp({ user }) {
   const myRole = staffRole(me);
   const isAdmin = myRole === "admin" || myRole === "superadmin";
   const isSuperAdmin = myRole === "superadmin";
-  const canAccessExpense = (e) => isSuperAdmin || !!(me && me.allowedCategories && me.allowedCategories[safeKey(e.category)]);
+  const canAccessExpense = (e) => {
+    if (isSuperAdmin) return true;
+    const cats = expenseCategories(e);
+    if (cats.length === 0) return false;
+    return !!(me && me.allowedCategories) && cats.every((c) => me.allowedCategories[safeKey(c)]);
+  };
 
   useEffect(() => {
     if (me && user.email && me.email !== user.email) db.ref("staff/" + user.uid + "/email").set(user.email);
@@ -2480,11 +2495,11 @@ function MainApp({ user }) {
   if (!me) return <NoProfileScreen email={user.email} />;
 
   const addExpense = async (form) => {
-    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
+    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), category: it.category, qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.category && it.qty > 0 && it.unitPrice > 0);
     const amount = itemsTotal(cleanItems);
     const newRef = db.ref("expenses/" + user.uid).push();
-    const record = { staffName: me.name, date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
-    if (form.receipt) record.receipt = form.receipt;
+    const record = { staffName: me.name, date: form.date, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
+    if (form.receipts && form.receipts.length) record.receipts = form.receipts;
     await newRef.set(record);
     const existingTagNames = tags.map((t) => t.name);
     const newTagNames = [...new Set(cleanItems.map((it) => it.tag))].filter((t) => !existingTagNames.includes(t));
@@ -2499,9 +2514,9 @@ function MainApp({ user }) {
   const cancelEdit = () => { setEditingExpense(null); setSection("expense"); setTab(editReturnTab); };
 
   const updateExpense = async (editing, form) => {
-    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.qty > 0 && it.unitPrice > 0);
+    const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), category: it.category, qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.category && it.qty > 0 && it.unitPrice > 0);
     const amount = itemsTotal(cleanItems);
-    const updates = { date: form.date, category: form.category, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), receipt: form.receipt || null };
+    const updates = { date: form.date, category: null, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), receipt: null, receipts: (form.receipts && form.receipts.length) ? form.receipts : null };
     if (editing.editKind === "own") {
       updates.status = "Pending";
       updates.submittedAt = new Date().toISOString();
@@ -2531,7 +2546,7 @@ function MainApp({ user }) {
     db.ref("categories").push({ name: name.trim(), order: maxOrder + 1 });
   };
 
-  const categoryUsageCount = (name) => allExpenses.filter((e) => e.category === name).length;
+  const categoryUsageCount = (name) => allExpenses.filter((e) => expenseCategories(e).includes(name)).length;
   const tagUsageCount = (name) => allExpenses.filter((e) => (e.items || []).some((it) => it.tag === name)).length;
 
   const removeCategory = (id, name) => {
@@ -2544,8 +2559,13 @@ function MainApp({ user }) {
     const clean = newName.trim();
     if (!clean || clean === oldName) return;
     const updates = { [`categories/${id}/name`]: clean };
-    const affected = allExpenses.filter((e) => e.category === oldName);
-    affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+    const affected = allExpenses.filter((e) => expenseCategories(e).includes(oldName));
+    affected.forEach((e) => {
+      if (e.items && e.items.some((it) => it.category === oldName)) {
+        updates[`expenses/${e.staffUid}/${e.id}/items`] = e.items.map((it) => (it.category === oldName ? { ...it, category: clean } : it));
+      }
+      if (e.category === oldName) updates[`expenses/${e.staffUid}/${e.id}/category`] = clean;
+    });
     const oldKey = safeKey(oldName), newKey = safeKey(clean);
     if (oldKey !== newKey) {
       Object.entries(staffMap || {}).forEach(([uid, s]) => {
@@ -2597,8 +2617,13 @@ function MainApp({ user }) {
     const clean = toName.trim();
     if (!clean || clean === fromName) return;
     const updates = { [`categories/${id}`]: null };
-    const affected = allExpenses.filter((e) => e.category === fromName);
-    affected.forEach((e) => { updates[`expenses/${e.staffUid}/${e.id}/category`] = clean; });
+    const affected = allExpenses.filter((e) => expenseCategories(e).includes(fromName));
+    affected.forEach((e) => {
+      if (e.items && e.items.some((it) => it.category === fromName)) {
+        updates[`expenses/${e.staffUid}/${e.id}/items`] = e.items.map((it) => (it.category === fromName ? { ...it, category: clean } : it));
+      }
+      if (e.category === fromName) updates[`expenses/${e.staffUid}/${e.id}/category`] = clean;
+    });
     const fromKey = safeKey(fromName), toKey = safeKey(clean);
     Object.entries(staffMap || {}).forEach(([uid, s]) => {
       if (s.allowedCategories && s.allowedCategories[fromKey]) {
@@ -2933,8 +2958,8 @@ function MainApp({ user }) {
     const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
     rows.forEach((e) => {
-      const itemsStr = (e.items || []).map((it) => `${it.tag} x${it.qty} @${it.unitPrice}=${it.qty * it.unitPrice}`).join("; ");
-      const cells = [e.date, e.staffName || me.name, e.category, itemsStr, e.amount, e.paymentMode, e.status, e.note, e.submittedAt, e.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      const itemsStr = (e.items || []).map((it) => `${it.tag} (${it.category || "—"}) x${it.qty} @${it.unitPrice}=${it.qty * it.unitPrice}`).join("; ");
+      const cells = [e.date, e.staffName || me.name, expenseCategoryLabel(e), itemsStr, e.amount, e.paymentMode, e.status, e.note, e.submittedAt, e.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
       lines.push(cells.join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
