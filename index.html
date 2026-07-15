@@ -790,13 +790,13 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
                   </div>
                 )}
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{expenseCategoryLabel(e)}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.expenseNo || "—"}</div>
                   <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
                   {e.items && e.items.length > 0 && (
                     <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
                       {e.items.map((it, i) => (
                         <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                          {it.tag}{expenseCategories(e).length > 1 && it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                          {it.tag}{it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
                         </div>
                       ))}
                     </div>
@@ -976,13 +976,13 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                   </div>
                 )}
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {expenseCategoryLabel(e)}</span></div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.staffName} <span style={{ color: "var(--ink-soft)", fontWeight: 400 }}>· {e.expenseNo || "—"}</span></div>
                   <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(e.date, dateFormat)} · {e.paymentMode}{e.note ? ` · ${e.note}` : ""}</div>
                   {e.items && e.items.length > 0 && (
                     <div style={{ marginTop: 6, display: "grid", gap: 2 }}>
                       {e.items.map((it, i) => (
                         <div key={i} style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "'IBM Plex Mono', monospace" }}>
-                          {it.tag}{expenseCategories(e).length > 1 && it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
+                          {it.tag}{it.category ? ` (${it.category})` : ""} ×{it.qty} @ {fmtNPR(it.unitPrice)} = {fmtNPR(it.qty * it.unitPrice)}
                         </div>
                       ))}
                     </div>
@@ -2498,7 +2498,10 @@ function MainApp({ user }) {
     const cleanItems = form.items.map((it) => ({ tag: it.tag.trim(), category: it.category, qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })).filter((it) => it.tag && it.category && it.qty > 0 && it.unitPrice > 0);
     const amount = itemsTotal(cleanItems);
     const newRef = db.ref("expenses/" + user.uid).push();
-    const record = { staffName: me.name, date: form.date, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
+    const yearAD = new Date(form.date).getFullYear();
+    const counterTx = await db.ref(`counters/expenseNo/${yearAD}`).transaction((cur) => (cur || 0) + 1);
+    const expenseNo = `Exp-${String(counterTx.snapshot.val()).padStart(2, "0")}/${String(yearAD).slice(-2)}`;
+    const record = { staffName: me.name, date: form.date, expenseNo, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
     if (form.receipts && form.receipts.length) record.receipts = form.receipts;
     await newRef.set(record);
     const existingTagNames = tags.map((t) => t.name);
@@ -2956,11 +2959,11 @@ function MainApp({ user }) {
   };
 
   const exportCSV = (rows) => {
-    const header = ["Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
+    const header = ["Expense No", "Date", "Staff", "Category", "Items", "Amount", "Payment Mode", "Status", "Note", "Submitted At", "Review Note"];
     const lines = [header.join(",")];
     rows.forEach((e) => {
       const itemsStr = (e.items || []).map((it) => `${it.tag} (${it.category || "—"}) x${it.qty} @${it.unitPrice}=${it.qty * it.unitPrice}`).join("; ");
-      const cells = [e.date, e.staffName || me.name, expenseCategoryLabel(e), itemsStr, e.amount, e.paymentMode, e.status, e.note, e.submittedAt, e.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      const cells = [e.expenseNo || "", e.date, e.staffName || me.name, expenseCategoryLabel(e), itemsStr, e.amount, e.paymentMode, e.status, e.note, e.submittedAt, e.reviewNote].map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
       lines.push(cells.join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
