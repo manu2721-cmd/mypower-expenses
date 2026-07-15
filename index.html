@@ -2499,9 +2499,19 @@ function MainApp({ user }) {
     const amount = itemsTotal(cleanItems);
     const newRef = db.ref("expenses/" + user.uid).push();
     const yearAD = new Date(form.date).getFullYear();
-    const counterTx = await db.ref(`counters/expenseNo/${yearAD}`).transaction((cur) => (cur || 0) + 1);
-    const expenseNo = `Exp-${String(counterTx.snapshot.val()).padStart(2, "0")}/${String(yearAD).slice(-2)}`;
-    const record = { staffName: me.name, date: form.date, expenseNo, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
+    let expenseNo = null;
+    try {
+      const counterTx = await db.ref(`counters/expenseNo/${yearAD}`).transaction((cur) => (cur || 0) + 1);
+      if (counterTx.committed && counterTx.snapshot.val() != null) {
+        expenseNo = `Exp-${String(counterTx.snapshot.val()).padStart(2, "0")}/${String(yearAD).slice(-2)}`;
+      } else {
+        console.error("Expense number counter did not commit (check Firebase rules for counters/expenseNo).");
+      }
+    } catch (err) {
+      console.error("Expense number counter failed:", err.message);
+    }
+    const record = { staffName: me.name, date: form.date, items: cleanItems, amount, paymentMode: form.paymentMode, note: form.note.trim(), status: "Pending", submittedAt: new Date().toISOString(), reviewNote: "" };
+    if (expenseNo) record.expenseNo = expenseNo;
     if (form.receipts && form.receipts.length) record.receipts = form.receipts;
     await newRef.set(record);
     const existingTagNames = tags.map((t) => t.name);
