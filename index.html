@@ -122,14 +122,23 @@ function computeAttStatus(timeStr, location) {
   return inMinutes > cutoff ? "late" : "present";
 }
 function getGeoPosition() {
-  return new Promise((resolve, reject) => {
+  const attempt = (opts) => new Promise((resolve, reject) => {
     if (!navigator.geolocation) { reject(new Error("Location isn't available on this device or browser.")); return; }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => reject(new Error(err.message || "Couldn't get your location — check location permission.")),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      (err) => {
+        let msg = err.message || "Couldn't get your location.";
+        if (err.code === 1) msg = "Location permission is blocked for this site — open your browser's site settings and allow Location, then try again.";
+        else if (err.code === 3) msg = "Getting your location timed out — try moving near a window or turning on WiFi, then try again.";
+        reject(new Error(msg));
+      },
+      opts
     );
   });
+  // Try a quick high-accuracy (GPS) fix first; indoors this often times out, so fall
+  // back to a slower low-accuracy (WiFi/network) fix, which works much better indoors.
+  return attempt({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 })
+    .catch(() => attempt({ enableHighAccuracy: false, timeout: 15000, maximumAge: 0 }));
 }
 function itemsTotal(items) {
   return (items || []).reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0);
