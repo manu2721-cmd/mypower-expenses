@@ -98,6 +98,7 @@ function fmtNPR(n) {
   const v = Number(n) || 0;
   return "Rs " + v.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
+function fmtCount(n) { return String(Number(n) || 0); }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return (d || "").slice(0, 7); }
 
@@ -370,17 +371,19 @@ function Field({ label, children, plain }) {
   return <Tag style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 600 }}>{label}{children}</Tag>;
 }
 
-function StatCard({ label, value, accent }) {
+function StatCard({ label, value, accent, format }) {
+  const fmt = format || fmtNPR;
   return (
     <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "14px 16px", flex: "1 1 130px" }}>
       <div style={{ fontSize: 11, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 500, marginTop: 4, color: accent || "var(--ink)" }}>{fmtNPR(value)}</div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 500, marginTop: 4, color: accent || "var(--ink)" }}>{fmt(value)}</div>
     </div>
   );
 }
 
 // Simple dependency-free horizontal bar chart with permanent value labels
-function SimpleBarChart({ data }) {
+function SimpleBarChart({ data, format }) {
+  const fmt = format || fmtNPR;
   if (!data || data.length === 0) return <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nothing to show yet.</div>;
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
@@ -391,7 +394,7 @@ function SimpleBarChart({ data }) {
           <div style={{ background: "var(--paper-dark)", borderRadius: 6, height: 20, overflow: "hidden" }}>
             <div style={{ width: `${(d.value / max) * 100}%`, height: "100%", background: BAR_COLORS[i % BAR_COLORS.length], borderRadius: 6 }} />
           </div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, minWidth: 80 }}>{fmtNPR(d.value)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, minWidth: 80 }}>{fmt(d.value)}</div>
         </div>
       ))}
     </div>
@@ -399,14 +402,15 @@ function SimpleBarChart({ data }) {
 }
 
 // Simple monthly trend as vertical bars with labels
-function SimpleTrendChart({ data }) {
+function SimpleTrendChart({ data, format }) {
+  const fmt = format || fmtNPR;
   if (!data || data.length === 0) return <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>Nothing to show yet.</div>;
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 14, height: 220, padding: "10px 4px" }}>
       {data.map((d) => (
         <div key={d.name} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flex: "1 1 0" }}>
-          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtNPR(d.value)}</div>
+          <div style={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}>{fmt(d.value)}</div>
           <div style={{ width: "70%", maxWidth: 40, height: `${(d.value / max) * 150}px`, background: "var(--approved)", borderRadius: "4px 4px 0 0" }} />
           <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{d.name}</div>
         </div>
@@ -1838,6 +1842,135 @@ function TeamLeave({ allLeaveRequests, staffMap, dateFormat, onApprove, onReject
   );
 }
 
+// ---------- Attendance Analysis: dynamic staff-wise / status-wise / time-period
+// filters and charts over existing attendance records. Note: this reports on
+// records that exist in the attendance node — it doesn't retroactively compute
+// "no record at all" absences across a date range, since that needs a defined
+// working-days calendar per location (a bigger, separate feature).
+function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) {
+  const [staffFilter, setStaffFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [locFilter, setLocFilter] = useState("All");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [view, setView] = useState("table");
+
+  const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
+  const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
+
+  const filtered = useMemo(() => allAttendance.filter((a) => {
+    const s = staffMap[a.staffUid] || {};
+    return (staffFilter === "All" || s.name === staffFilter) &&
+      (statusFilter === "All" || a.status === statusFilter) &&
+      (locFilter === "All" || a.locationId === locFilter) &&
+      (!fromDate || a.date >= fromDate) && (!toDate || a.date <= toDate);
+  }).sort((a, b) => b.date.localeCompare(a.date)), [allAttendance, staffMap, staffFilter, statusFilter, locFilter, fromDate, toDate]);
+
+  const totals = useMemo(() => {
+    const t = { total: 0, present: 0, late: 0, half_day: 0, on_leave: 0, awaiting_checkin: 0 };
+    filtered.forEach((a) => { t.total++; if (t[a.status] != null) t[a.status]++; });
+    return t;
+  }, [filtered]);
+
+  const byStaff = useMemo(() => {
+    const m = {}; filtered.forEach((a) => { const n = (staffMap[a.staffUid] || {}).name || a.staffUid; m[n] = (m[n] || 0) + 1; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered, staffMap]);
+
+  const byStatus = useMemo(() => {
+    const m = {}; filtered.forEach((a) => { const label = (ATT_STATUS_META[a.status] || {}).label || a.status; m[label] = (m[label] || 0) + 1; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byLocation = useMemo(() => {
+    const m = {}; filtered.forEach((a) => { const n = a.locationId ? locName(a.locationId) : "No location"; m[n] = (m[n] || 0) + 1; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered, locations]);
+
+  const byMonth = useMemo(() => {
+    const m = {}; filtered.forEach((a) => { const k = monthKey(a.date); m[k] = (m[k] || 0) + 1; });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [filtered]);
+
+  const exportCSV = () => {
+    const header = ["Date", "Staff", "Status", "Check-in", "Check-out", "Location", "Method", "Note"];
+    const lines = [header.join(",")];
+    filtered.forEach((a) => {
+      const s = staffMap[a.staffUid] || {};
+      const cells = [a.date, s.name || a.staffUid, (ATT_STATUS_META[a.status] || {}).label || a.status, fmtTimeLabel(a.checkInTime), fmtTimeLabel(a.checkOutTime), a.locationId ? locName(a.locationId) : "", a.method || "", a.note || ""]
+        .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      lines.push(cells.join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a2 = document.createElement("a");
+    a2.href = url; a2.download = `mypower_attendance_${todayStr()}.csv`;
+    document.body.appendChild(a2); a2.click(); a2.remove(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Total records" value={totals.total} format={fmtCount} />
+        <StatCard label="Present" value={totals.present} accent="var(--approved)" format={fmtCount} />
+        <StatCard label="Late" value={totals.late} accent="var(--pending)" format={fmtCount} />
+        <StatCard label="Half day" value={totals.half_day} accent="var(--paid)" format={fmtCount} />
+        <StatCard label="On leave" value={totals.on_leave} accent="var(--on-leave)" format={fmtCount} />
+        <StatCard label="Awaiting approval" value={totals.awaiting_checkin} accent="var(--pending)" format={fmtCount} />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{staffNameList.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={smallSelect}>
+          <option value="All">All</option>{Object.entries(ATT_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} style={smallSelect}>
+          <option value="All">All</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>From</span>
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>To</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["table", "Table"], ["staff", "By Staff"], ["status", "By Status"], ["location", "By Location"], ["trend", "Monthly Trend"]].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{ ...ghostBtn, background: view === id ? "var(--ink)" : "var(--card)", color: view === id ? "var(--paper)" : "var(--ink)" }}>{label}</button>
+          ))}
+          <button onClick={exportCSV} style={ghostBtn}>Export CSV</button>
+        </div>
+      </div>
+
+      {view === "table" && (
+        <div style={{ display: "grid", gap: 2 }}>
+          {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No attendance records match these filters.</Card>}
+          {filtered.map((a) => {
+            const s = staffMap[a.staffUid] || {};
+            return (
+              <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                    {a.checkInTime ? fmtTimeLabel(a.checkInTime) : "—"}{a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""} · {a.locationId ? locName(a.locationId) : "No location"}
+                  </div>
+                  {(a.geoLat != null || a.checkOutGeoLat != null) && (
+                    <div style={{ marginTop: 2 }}><MapLink lat={a.geoLat} lng={a.geoLng} label="View check-in location" /></div>
+                  )}
+                </div>
+                <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {view === "staff" && <Card><SimpleBarChart data={byStaff} format={fmtCount} /></Card>}
+      {view === "status" && <Card><SimpleBarChart data={byStatus} format={fmtCount} /></Card>}
+      {view === "location" && <Card><SimpleBarChart data={byLocation} format={fmtCount} /></Card>}
+      {view === "trend" && <Card><SimpleTrendChart data={byMonth} format={fmtCount} /></Card>}
+    </div>
+  );
+}
+
 // Text wordmark for now — swap the placeholder block below for an <img src="logo.png" .../>
 // once the real logo file is added to the repo. Kept as one component so that's a one-line change.
 function Logo({ large }) {
@@ -3003,9 +3136,9 @@ function MainApp({ user }) {
     : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
 
   const attendanceTabs = isSuperAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceSettings", label: "Locations" }]
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }, { id: "attendanceSettings", label: "Locations" }]
     : isAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }]
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }]
     : [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }];
 
   const profileTabs = isAdmin
@@ -3106,6 +3239,9 @@ function MainApp({ user }) {
         )}
         {section === "attendance" && tab === "teamLeave" && isAdmin && (
           <TeamLeave allLeaveRequests={allLeaveRequests} staffMap={staffMap} dateFormat={dateFormat} onApprove={approveLeaveRequest} onReject={rejectLeaveRequest} onExport={exportLeaveCSV} />
+        )}
+        {section === "attendance" && tab === "attendanceAnalysis" && isAdmin && (
+          <AttendanceAnalysis allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} />
         )}
         {section === "attendance" && tab === "attendanceSettings" && isSuperAdmin && (
           <AttendanceSettings locations={locations} routers={routers} onAddLocation={addLocation} onUpdateLocation={updateLocation} onRemoveLocation={removeLocation} onAddRouter={addRouter} onRemoveRouter={removeRouter} />
