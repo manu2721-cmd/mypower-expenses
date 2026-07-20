@@ -1036,10 +1036,18 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
                     <button onClick={() => onReview(e.staffUid, e.id, "Rejected", reviewNoteDraft[e.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
                   </>
                 )}
+                {e.status === "Rejected" && (
+                  <button onClick={() => onReview(e.staffUid, e.id, "Pending", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Move to Pending</button>
+                )}
                 {e.status === "Approved" && (() => {
                   const staffAdv = allAdvances.filter((a) => a.staffUid === e.staffUid);
                   if (staffAdv.length === 0) {
-                    return <button onClick={() => onMarkPaid(e.staffUid, e.id, false)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>;
+                    return (
+                      <>
+                        <button onClick={() => onMarkPaid(e.staffUid, e.id, false)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>
+                        <button onClick={() => onReview(e.staffUid, e.id, "Pending", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Move to Pending</button>
+                      </>
+                    );
                   }
                   const staffExp = expenses.filter((x) => x.staffUid === e.staffUid);
                   const bal = advanceBalance(staffAdv, staffExp);
@@ -1048,9 +1056,13 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
                       <span style={{ fontSize: 11, color: bal < 0 ? "var(--rejected)" : "var(--ink-soft)" }}>Advance bal: {fmtNPR(bal)}</span>
                       <button onClick={() => onMarkPaid(e.staffUid, e.id, true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Paid (from advance)</button>
                       <button onClick={() => onMarkPaid(e.staffUid, e.id, false)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Paid (fresh)</button>
+                      <button onClick={() => onReview(e.staffUid, e.id, "Pending", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Move to Pending</button>
                     </div>
                   );
                 })()}
+                {e.status === "Paid" && (
+                  <button onClick={() => onReview(e.staffUid, e.id, "Approved", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Move to Approved</button>
+                )}
                 {isSuperAdmin && ["Pending", "Approved", "Paid"].includes(e.status) && (
                   <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Edit</button>
                 )}
@@ -1071,14 +1083,18 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
 }
 
 // ---------- Advances: give advance to staff, and see everyone's running balance ----------
-function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, onDelete }) {
+function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, onUpdate, onDelete }) {
   const [staffUid, setStaffUid] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [date, setDate] = useState(todayStr());
   const [busy, setBusy] = useState(false);
   const [expandedUid, setExpandedUid] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
 
   const staffList = useMemo(() => Object.entries(staffMap).map(([uid, s]) => ({ uid, name: s.name })).filter((s) => s.name).sort((a, b) => a.name.localeCompare(b.name)), [staffMap]);
+  const advDate = (a) => a.date || (a.givenAt || "").slice(0, 10);
 
   const ledgerRows = useMemo(() => {
     const uidsWithAdvance = [...new Set(allAdvances.map((a) => a.staffUid))];
@@ -1092,10 +1108,13 @@ function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, o
   const submit = async () => {
     if (!staffUid || !(Number(amount) > 0)) return;
     setBusy(true);
-    await onGive(staffUid, amount, note);
-    setAmount(""); setNote("");
+    await onGive(staffUid, amount, note, date);
+    setAmount(""); setNote(""); setDate(todayStr());
     setBusy(false);
   };
+
+  const startEdit = (a) => { setEditingId(a.id); setEditDraft({ amount: a.amount, note: a.note || "", date: advDate(a) }); };
+  const saveEdit = (uid, id) => { onUpdate(uid, id, { amount: Number(editDraft.amount) || 0, note: editDraft.note.trim(), date: editDraft.date }); setEditingId(null); };
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1107,6 +1126,10 @@ function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, o
             {staffList.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
           </select>
           <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" style={inputStyle} />
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 3 }}>Date</div>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} />
+          </div>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" style={inputStyle} />
           <button onClick={submit} disabled={busy || !staffUid || !(Number(amount) > 0)} style={{ ...ghostBtn, background: "var(--brand-yellow)", borderColor: "var(--brand-yellow)" }}>{busy ? "Saving…" : "Give advance"}</button>
         </div>
@@ -1130,12 +1153,25 @@ function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, o
               </div>
               {expandedUid === r.uid && (
                 <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                  {allAdvances.filter((a) => a.staffUid === r.uid).sort((a, b) => (b.givenAt || "").localeCompare(a.givenAt || "")).map((a) => (
-                    <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "6px 10px" }}>
-                      <span>+ {fmtNPR(a.amount)} given {fmtDate((a.givenAt || "").slice(0, 10), dateFormat)}{a.note ? ` · ${a.note}` : ""} <span style={{ color: "var(--ink-soft)" }}>by {a.givenBy}</span></span>
-                      <button onClick={() => { if (window.confirm("Delete this advance entry? This can't be undone.")) onDelete(r.uid, a.id); }}
-                        style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 4px" }}>×</button>
-                    </div>
+                  {allAdvances.filter((a) => a.staffUid === r.uid).sort((a, b) => advDate(b).localeCompare(advDate(a))).map((a) => (
+                    editingId === a.id ? (
+                      <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", background: "var(--paper)", borderRadius: 8, padding: "8px 10px" }}>
+                        <input type="number" min="0" step="0.01" value={editDraft.amount} onChange={(e) => setEditDraft((d) => ({ ...d, amount: e.target.value }))} style={{ ...smallSelect, width: 90 }} />
+                        <input type="date" value={editDraft.date} onChange={(e) => setEditDraft((d) => ({ ...d, date: e.target.value }))} style={{ ...smallSelect, padding: "7px 9px" }} />
+                        <input value={editDraft.note} onChange={(e) => setEditDraft((d) => ({ ...d, note: e.target.value }))} placeholder="Note" style={{ ...smallSelect, flex: 1, minWidth: 100 }} />
+                        <button onClick={() => saveEdit(r.uid, a.id)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5, borderColor: "var(--approved)", color: "var(--approved)" }}>Save</button>
+                        <button onClick={() => setEditingId(null)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5 }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "6px 10px", gap: 8, flexWrap: "wrap" }}>
+                        <span>+ {fmtNPR(a.amount)} given {fmtDate(advDate(a), dateFormat)}{a.note ? ` · ${a.note}` : ""} <span style={{ color: "var(--ink-soft)" }}>by {a.givenBy}</span>{a.lastEditedBy ? <span style={{ color: "var(--ink-soft)", fontStyle: "italic" }}> · edited by {a.lastEditedBy}</span> : ""}</span>
+                        <span style={{ display: "flex", gap: 4 }}>
+                          <button onClick={() => startEdit(a)} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11 }}>Edit</button>
+                          <button onClick={() => { if (window.confirm("Delete this advance entry? This can't be undone.")) onDelete(r.uid, a.id); }}
+                            style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 4px" }}>×</button>
+                        </span>
+                      </div>
+                    )
                   ))}
                   {allExpenses.filter((e) => e.staffUid === r.uid && e.status === "Paid" && e.paidFromAdvance).sort((a, b) => (b.reviewedAt || b.submittedAt || "").localeCompare(a.reviewedAt || a.submittedAt || "")).map((e) => (
                     <div key={e.id} style={{ fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "6px 10px", color: "var(--rejected)" }}>
@@ -1148,6 +1184,83 @@ function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, o
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+// ---------- Ledger: combined debit/credit statement for one staff. Only Approved
+// (outstanding) and Paid expenses show here — Pending and Rejected never appear.
+function StaffLedger({ staffName, advances, expenses, dateFormat }) {
+  const advBalance = useMemo(() => advanceBalance(advances, expenses), [advances, expenses]);
+  const advGiven = useMemo(() => advanceGivenTotal(advances), [advances]);
+  const outstanding = useMemo(() => expenses.filter((e) => e.status === "Approved").reduce((s, e) => s + (Number(e.amount) || 0), 0), [expenses]);
+  const totalPaid = useMemo(() => expenses.filter((e) => e.status === "Paid").reduce((s, e) => s + (Number(e.amount) || 0), 0), [expenses]);
+
+  const rows = useMemo(() => {
+    const out = [];
+    advances.forEach((a) => {
+      out.push({ key: "adv-" + a.id, date: a.date || (a.givenAt || "").slice(0, 10), desc: "Advance given" + (a.note ? " — " + a.note : ""), amount: a.amount, sign: 1, badge: "Advance", badgeColor: "var(--on-leave)" });
+    });
+    expenses.forEach((e) => {
+      if (e.status === "Approved") {
+        out.push({ key: "exp-app-" + e.id, date: e.date, desc: `Expense approved — ${e.expenseNo || "voucher"} (awaiting payment)`, amount: e.amount, sign: 1, badge: "Outstanding", badgeColor: "var(--pending)" });
+      } else if (e.status === "Paid") {
+        out.push({ key: "exp-paid-" + e.id, date: e.date, desc: `Expense paid — ${e.expenseNo || "voucher"}` + (e.paidFromAdvance ? " (settled from advance)" : ""), amount: e.amount, sign: -1, badge: "Outstanding", badgeColor: "var(--paid)" });
+      }
+    });
+    return out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }, [advances, expenses]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Advance given" value={advGiven} accent="var(--on-leave)" />
+        <StatCard label="Advance balance" value={advBalance} accent={advBalance < 0 ? "var(--rejected)" : "var(--on-leave)"} />
+        <StatCard label="Outstanding (to be paid)" value={outstanding} accent="var(--pending)" />
+        <StatCard label="Total paid" value={totalPaid} accent="var(--paid)" />
+      </div>
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{staffName ? `${staffName}'s ` : ""}Ledger</div>
+        {rows.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No advance or approved/paid expense activity yet.</div>}
+        <div style={{ display: "grid", gap: 2 }}>
+          {rows.map((r) => (
+            <div key={r.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13 }}>{r.desc}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 2 }}>{fmtDate(r.date, dateFormat)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10.5, color: r.badgeColor, border: `1px solid ${r.badgeColor}`, borderRadius: 999, padding: "2px 8px" }}>{r.badge}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: r.sign > 0 ? "var(--approved)" : "var(--rejected)" }}>{r.sign > 0 ? "+ " : "− "}{fmtNPR(r.amount)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function LedgerTab({ staffMap, allAdvances, allExpenses, dateFormat }) {
+  const [staffUid, setStaffUid] = useState("");
+  const staffList = useMemo(() => Object.entries(staffMap).map(([uid, s]) => ({ uid, name: s.name })).filter((s) => s.name).sort((a, b) => a.name.localeCompare(b.name)), [staffMap]);
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <select value={staffUid} onChange={(e) => setStaffUid(e.target.value)} style={{ ...inputStyle, maxWidth: 300 }}>
+        <option value="">Choose an employee…</option>
+        {staffList.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
+      </select>
+      {staffUid ? (
+        <StaffLedger
+          staffName={(staffMap[staffUid] || {}).name}
+          advances={allAdvances.filter((a) => a.staffUid === staffUid)}
+          expenses={allExpenses.filter((e) => e.staffUid === staffUid)}
+          dateFormat={dateFormat}
+        />
+      ) : (
+        <Card style={{ color: "var(--ink-soft)" }}>Pick an employee above to see their ledger.</Card>
+      )}
     </div>
   );
 }
@@ -2833,7 +2946,9 @@ function MainApp({ user }) {
   const review = async (staffUid, expenseId, status, note) => {
     const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
     if (target && !canAccessExpense(target)) { flash("You don't have access to this category."); return; }
-    await db.ref("expenses/" + staffUid + "/" + expenseId).update({ status, reviewNote: note || "", reviewedBy: me.name });
+    const updates = { status, reviewNote: note || "", reviewedBy: me.name };
+    if (status !== "Paid") updates.paidFromAdvance = false;
+    await db.ref("expenses/" + staffUid + "/" + expenseId).update(updates);
     flash("Marked " + status.toLowerCase() + ".");
   };
 
@@ -2844,12 +2959,17 @@ function MainApp({ user }) {
     flash(useAdvance ? "Marked paid — deducted from advance." : "Marked paid.");
   };
 
-  const giveAdvance = async (staffUid, amount, note) => {
+  const giveAdvance = async (staffUid, amount, note, date) => {
     const amt = Number(amount) || 0;
     if (!staffUid || amt <= 0) return;
     const newRef = db.ref("advances/" + staffUid).push();
-    await newRef.set({ amount: amt, note: (note || "").trim(), givenBy: me.name, givenAt: new Date().toISOString() });
+    await newRef.set({ amount: amt, note: (note || "").trim(), date: date || todayStr(), givenBy: me.name, givenAt: new Date().toISOString() });
     flash("Advance recorded.");
+  };
+
+  const updateAdvance = async (staffUid, advanceId, updates) => {
+    await db.ref("advances/" + staffUid + "/" + advanceId).update({ ...updates, lastEditedBy: me.name, lastEditedAt: new Date().toISOString() });
+    flash("Advance entry updated.");
   };
 
   const deleteAdvance = async (staffUid, advanceId) => {
@@ -3292,10 +3412,10 @@ function MainApp({ user }) {
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
   const expenseTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }, { id: "expenseSettings", label: "Categories & Tags" }]
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }, { id: "ledger", label: "Ledger" }, { id: "expenseSettings", label: "Categories & Tags" }]
     : isAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }]
-    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }, { id: "ledger", label: "Ledger" }]
+    : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "ledger", label: "My Ledger" }];
 
   const attendanceTabs = isSuperAdmin
     ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }, { id: "attendanceSettings", label: "Locations" }]
@@ -3379,7 +3499,13 @@ function MainApp({ user }) {
           </div>
         )}
         {section === "expense" && tab === "advances" && isAdmin && (
-          <AdvancesTab staffMap={staffMap} allAdvances={allAdvances} allExpenses={allExpenses} dateFormat={dateFormat} onGive={giveAdvance} onDelete={deleteAdvance} />
+          <AdvancesTab staffMap={staffMap} allAdvances={allAdvances} allExpenses={allExpenses} dateFormat={dateFormat} onGive={giveAdvance} onUpdate={updateAdvance} onDelete={deleteAdvance} />
+        )}
+        {section === "expense" && tab === "ledger" && isAdmin && (
+          <LedgerTab staffMap={staffMap} allAdvances={allAdvances} allExpenses={allExpenses} dateFormat={dateFormat} />
+        )}
+        {section === "expense" && tab === "ledger" && !isAdmin && (
+          <StaffLedger staffName={me.name} advances={myAdvances} expenses={myExpenses} dateFormat={dateFormat} />
         )}
         {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
           <ExpenseSettings
