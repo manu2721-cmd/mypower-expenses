@@ -187,6 +187,18 @@ function spendByCategory(expenses) {
 function objToArr(obj) {
   return Object.entries(obj || {}).map(([id, val]) => (typeof val === "string" ? { id, name: val } : { id, ...val }));
 }
+// Advance ledger: balance = total given to the staff, minus every Paid expense
+// that was settled against that advance. Can go negative if a staff has spent
+// more than their advance — that's the company still owing them the difference.
+function advanceGivenTotal(advancesForUid) {
+  return (advancesForUid || []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+}
+function advanceDeductedTotal(expensesForUid) {
+  return (expensesForUid || []).filter((e) => e.status === "Paid" && e.paidFromAdvance).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+}
+function advanceBalance(advancesForUid, expensesForUid) {
+  return advanceGivenTotal(advancesForUid) - advanceDeductedTotal(expensesForUid);
+}
 
 // ---------- Roles & category permissions ----------
 // Three tiers: "staff" (default), "admin" (limited — can be restricted to specific
@@ -747,7 +759,7 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
 }
 
 // ---------- My Expenses ----------
-function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat }) {
+function MyExpenses({ myName, expenses, myAdvances, onWithdraw, onEdit, onExport, dateFormat }) {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -766,6 +778,8 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
     return t;
   }, [filtered]);
 
+  const advBalance = useMemo(() => advanceBalance(myAdvances, expenses), [myAdvances, expenses]);
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -773,6 +787,7 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
         <StatCard label="Approved" value={totals.approved} accent="var(--approved)" />
         <StatCard label="Pending" value={totals.pending} accent="var(--pending)" />
         <StatCard label="Paid out" value={totals.paid} accent="var(--paid)" />
+        {myAdvances.length > 0 && <StatCard label="Advance balance" value={advBalance} accent={advBalance < 0 ? "var(--rejected)" : "var(--on-leave)"} />}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div style={{ fontFamily: "'Lora', serif", fontSize: 17, fontWeight: 600 }}>{myName}'s claims</div>
@@ -821,6 +836,7 @@ function MyExpenses({ myName, expenses, onWithdraw, onEdit, onExport, dateFormat
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
                 <StatusBadge status={e.status} />
+                {e.status === "Paid" && e.paidFromAdvance && <span style={{ fontSize: 10.5, color: "var(--on-leave)", fontWeight: 600 }}>from advance</span>}
                 {(e.status === "Pending" || e.status === "Rejected") && confirmWithdrawId !== e.id && (
                   <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>{e.status === "Rejected" ? "Edit & resubmit" : "Edit"}</button>
                 )}
@@ -891,7 +907,7 @@ function MyAnalysis({ expenses }) {
 }
 
 // ---------- Admin Overview ----------
-function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete, onEdit, isSuperAdmin, dateFormat }) {
+function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMarkPaid, onExport, onDelete, onEdit, isSuperAdmin, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [catFilter, setCatFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -1011,6 +1027,7 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(e.amount)}</div>
                 <StatusBadge status={e.status} />
+                {e.status === "Paid" && e.paidFromAdvance && <span style={{ fontSize: 10.5, color: "var(--on-leave)", fontWeight: 600 }}>from advance</span>}
                 {e.status === "Pending" && (
                   <>
                     <input placeholder="Note (for reject)" value={reviewNoteDraft[e.id] || ""} onChange={(ev) => setReviewNoteDraft((d) => ({ ...d, [e.id]: ev.target.value }))}
@@ -1019,7 +1036,21 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
                     <button onClick={() => onReview(e.staffUid, e.id, "Rejected", reviewNoteDraft[e.id] || "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Reject</button>
                   </>
                 )}
-                {e.status === "Approved" && <button onClick={() => onReview(e.staffUid, e.id, "Paid", "")} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>}
+                {e.status === "Approved" && (() => {
+                  const staffAdv = allAdvances.filter((a) => a.staffUid === e.staffUid);
+                  if (staffAdv.length === 0) {
+                    return <button onClick={() => onMarkPaid(e.staffUid, e.id, false)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Mark paid</button>;
+                  }
+                  const staffExp = expenses.filter((x) => x.staffUid === e.staffUid);
+                  const bal = advanceBalance(staffAdv, staffExp);
+                  return (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, color: bal < 0 ? "var(--rejected)" : "var(--ink-soft)" }}>Advance bal: {fmtNPR(bal)}</span>
+                      <button onClick={() => onMarkPaid(e.staffUid, e.id, true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--paid)", color: "var(--paid)" }}>Paid (from advance)</button>
+                      <button onClick={() => onMarkPaid(e.staffUid, e.id, false)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Paid (fresh)</button>
+                    </div>
+                  );
+                })()}
                 {isSuperAdmin && ["Pending", "Approved", "Paid"].includes(e.status) && (
                   <button onClick={() => onEdit(e)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Edit</button>
                 )}
@@ -1035,6 +1066,88 @@ function Overview({ expenses, staffMap, categories, onReview, onExport, onDelete
       {view === "staff" && <Card><SimpleBarChart data={byStaff} /></Card>}
       {view === "trend" && <Card><SimpleTrendChart data={byMonth} /></Card>}
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    </div>
+  );
+}
+
+// ---------- Advances: give advance to staff, and see everyone's running balance ----------
+function AdvancesTab({ staffMap, allAdvances, allExpenses, dateFormat, onGive, onDelete }) {
+  const [staffUid, setStaffUid] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [expandedUid, setExpandedUid] = useState(null);
+
+  const staffList = useMemo(() => Object.entries(staffMap).map(([uid, s]) => ({ uid, name: s.name })).filter((s) => s.name).sort((a, b) => a.name.localeCompare(b.name)), [staffMap]);
+
+  const ledgerRows = useMemo(() => {
+    const uidsWithAdvance = [...new Set(allAdvances.map((a) => a.staffUid))];
+    return uidsWithAdvance.map((uid) => {
+      const adv = allAdvances.filter((a) => a.staffUid === uid);
+      const exp = allExpenses.filter((e) => e.staffUid === uid);
+      return { uid, name: (staffMap[uid] || {}).name || uid, given: advanceGivenTotal(adv), deducted: advanceDeductedTotal(exp), balance: advanceBalance(adv, exp) };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allAdvances, allExpenses, staffMap]);
+
+  const submit = async () => {
+    if (!staffUid || !(Number(amount) > 0)) return;
+    setBusy(true);
+    await onGive(staffUid, amount, note);
+    setAmount(""); setNote("");
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card style={{ maxWidth: 480 }}>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Give advance</div>
+        <div style={{ display: "grid", gap: 10 }}>
+          <select value={staffUid} onChange={(e) => setStaffUid(e.target.value)} style={inputStyle}>
+            <option value="">Choose staff…</option>
+            {staffList.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
+          </select>
+          <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" style={inputStyle} />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" style={inputStyle} />
+          <button onClick={submit} disabled={busy || !staffUid || !(Number(amount) > 0)} style={{ ...ghostBtn, background: "var(--brand-yellow)", borderColor: "var(--brand-yellow)" }}>{busy ? "Saving…" : "Give advance"}</button>
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Staff advance balances</div>
+        {ledgerRows.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No advances given yet.</div>}
+        <div style={{ display: "grid", gap: 2 }}>
+          {ledgerRows.map((r) => (
+            <div key={r.uid} style={{ borderBottom: "1px solid var(--line)", padding: "10px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{r.name}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>Given {fmtNPR(r.given)} · Deducted {fmtNPR(r.deducted)}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, color: r.balance < 0 ? "var(--rejected)" : "var(--ink)" }}>{fmtNPR(r.balance)}</div>
+                  <button onClick={() => setExpandedUid(expandedUid === r.uid ? null : r.uid)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5 }}>{expandedUid === r.uid ? "Hide" : "History"}</button>
+                </div>
+              </div>
+              {expandedUid === r.uid && (
+                <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                  {allAdvances.filter((a) => a.staffUid === r.uid).sort((a, b) => (b.givenAt || "").localeCompare(a.givenAt || "")).map((a) => (
+                    <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "6px 10px" }}>
+                      <span>+ {fmtNPR(a.amount)} given {fmtDate((a.givenAt || "").slice(0, 10), dateFormat)}{a.note ? ` · ${a.note}` : ""} <span style={{ color: "var(--ink-soft)" }}>by {a.givenBy}</span></span>
+                      <button onClick={() => { if (window.confirm("Delete this advance entry? This can't be undone.")) onDelete(r.uid, a.id); }}
+                        style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 4px" }}>×</button>
+                    </div>
+                  ))}
+                  {allExpenses.filter((e) => e.staffUid === r.uid && e.status === "Paid" && e.paidFromAdvance).sort((a, b) => (b.reviewedAt || b.submittedAt || "").localeCompare(a.reviewedAt || a.submittedAt || "")).map((e) => (
+                    <div key={e.id} style={{ fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "6px 10px", color: "var(--rejected)" }}>
+                      − {fmtNPR(e.amount)} deducted · {e.expenseNo || fmtDate(e.date, dateFormat)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -2466,6 +2579,8 @@ function MainApp({ user }) {
   const [allAttendance, setAllAttendance] = useState([]);
   const [myLeaveRequests, setMyLeaveRequests] = useState([]);
   const [allLeaveRequests, setAllLeaveRequests] = useState([]);
+  const [myAdvances, setMyAdvances] = useState([]);
+  const [allAdvances, setAllAdvances] = useState([]);
   const [leaveBusy, setLeaveBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
@@ -2542,6 +2657,17 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [user.uid]);
 
+  useEffect(() => {
+    const ref = db.ref("advances/" + user.uid);
+    const cb = (snap) => {
+      const arr = objToArr(snap.val());
+      arr.sort((a, b) => (a.givenAt || "").localeCompare(b.givenAt || ""));
+      setMyAdvances(arr);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
   const me = staffMap ? staffMap[user.uid] : null;
   const myRole = staffRole(me);
   const isAdmin = myRole === "admin" || myRole === "superadmin";
@@ -2598,6 +2724,22 @@ function MainApp({ user }) {
       });
       out.sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
       setAllLeaveRequests(out);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) { setAllAdvances([]); return; }
+    const ref = db.ref("advances");
+    const cb = (snap) => {
+      const all = snap.val() || {};
+      const out = [];
+      Object.entries(all).forEach(([uid, advs]) => {
+        Object.entries(advs || {}).forEach(([id, val]) => out.push({ id, staffUid: uid, ...val }));
+      });
+      out.sort((a, b) => (a.givenAt || "").localeCompare(b.givenAt || ""));
+      setAllAdvances(out);
     };
     ref.on("value", cb);
     return () => ref.off("value", cb);
@@ -2693,6 +2835,26 @@ function MainApp({ user }) {
     if (target && !canAccessExpense(target)) { flash("You don't have access to this category."); return; }
     await db.ref("expenses/" + staffUid + "/" + expenseId).update({ status, reviewNote: note || "", reviewedBy: me.name });
     flash("Marked " + status.toLowerCase() + ".");
+  };
+
+  const markExpensePaid = async (staffUid, expenseId, useAdvance) => {
+    const target = allExpenses.find((e) => e.staffUid === staffUid && e.id === expenseId);
+    if (target && !canAccessExpense(target)) { flash("You don't have access to this category."); return; }
+    await db.ref("expenses/" + staffUid + "/" + expenseId).update({ status: "Paid", paidFromAdvance: !!useAdvance, reviewedBy: me.name });
+    flash(useAdvance ? "Marked paid — deducted from advance." : "Marked paid.");
+  };
+
+  const giveAdvance = async (staffUid, amount, note) => {
+    const amt = Number(amount) || 0;
+    if (!staffUid || amt <= 0) return;
+    const newRef = db.ref("advances/" + staffUid).push();
+    await newRef.set({ amount: amt, note: (note || "").trim(), givenBy: me.name, givenAt: new Date().toISOString() });
+    flash("Advance recorded.");
+  };
+
+  const deleteAdvance = async (staffUid, advanceId) => {
+    await db.ref("advances/" + staffUid + "/" + advanceId).remove();
+    flash("Advance entry deleted.");
   };
 
   const addCategory = (name) => {
@@ -3130,9 +3292,9 @@ function MainApp({ user }) {
   const allowedExpenses = isSuperAdmin ? allExpenses : allExpenses.filter(canAccessExpense);
 
   const expenseTabs = isSuperAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "expenseSettings", label: "Categories & Tags" }]
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }, { id: "expenseSettings", label: "Categories & Tags" }]
     : isAdmin
-    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }]
+    ? [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "overview", label: "Company Overview" }, { id: "advances", label: "Advances" }]
     : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }];
 
   const attendanceTabs = isSuperAdmin
@@ -3204,7 +3366,7 @@ function MainApp({ user }) {
             categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
             editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
         )}
-        {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
+        {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} myAdvances={myAdvances} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
         {section === "expense" && tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
         {section === "expense" && tab === "overview" && isAdmin && (
           <div>
@@ -3213,8 +3375,11 @@ function MainApp({ user }) {
                 You have access to {visibleCategories.length} of {sortedCategories.length} categories. Totals, charts, and exports below reflect only what you're permitted to see.
               </div>
             )}
-            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} onReview={review} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
+            <Overview expenses={allowedExpenses} staffMap={staffMap} categories={visibleCategories} allAdvances={allAdvances} onReview={review} onMarkPaid={markExpensePaid} onExport={exportCSV} onDelete={adminDeleteExpense} onEdit={startEditAsAdmin} isSuperAdmin={isSuperAdmin} dateFormat={dateFormat} />
           </div>
+        )}
+        {section === "expense" && tab === "advances" && isAdmin && (
+          <AdvancesTab staffMap={staffMap} allAdvances={allAdvances} allExpenses={allExpenses} dateFormat={dateFormat} onGive={giveAdvance} onDelete={deleteAdvance} />
         )}
         {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
           <ExpenseSettings
