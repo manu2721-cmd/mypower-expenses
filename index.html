@@ -1795,9 +1795,18 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
         </div>
         <div style={{ display: "grid", gap: 2 }}>
           {staffList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
-          {staffList.map((s) => {
-            const rec = dayRecords.find((a) => a.staffUid === s.uid);
-            const status = rec ? rec.status : "absent";
+          {staffList
+            .map((s) => {
+              const rec = dayRecords.find((a) => a.staffUid === s.uid);
+              const status = rec ? rec.status : "absent";
+              return { s, rec, status };
+            })
+            .sort((a, b) => {
+              const order = { absent: 0, awaiting_checkin: 1, late: 2, half_day: 3, on_leave: 4, present: 5 };
+              const oa = order[a.status] ?? 6, ob = order[b.status] ?? 6;
+              return oa !== ob ? oa - ob : a.s.name.localeCompare(b.s.name);
+            })
+            .map(({ s, rec, status }) => {
             return (
               <div key={s.uid} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
