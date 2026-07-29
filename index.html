@@ -594,8 +594,9 @@ function CategoryPicker({ value, onChange, categories, placeholder }) {
   );
 }
 
-function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat }) {
-  const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", category: categories[0]?.name || "", qty: 1, unitPrice: "" });
+function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCancelEdit, isMobile, dateFormat, canSeeHidden }) {
+  const visibleCategories = canSeeHidden ? categories : categories.filter((c) => !c.hiddenFromStaff);
+  const emptyItem = () => ({ id: Math.random().toString(36).slice(2), tag: "", category: visibleCategories[0]?.name || "", qty: 1, unitPrice: "" });
   const buildForm = () => {
     if (editingExpense) {
       return {
@@ -603,7 +604,7 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
         paymentMode: editingExpense.paymentMode || PAYMENT_MODES[0],
         note: editingExpense.note || "",
         items: editingExpense.items && editingExpense.items.length > 0
-          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, category: it.category || editingExpense.category || categories[0]?.name || "", qty: it.qty, unitPrice: it.unitPrice }))
+          ? editingExpense.items.map((it) => ({ id: Math.random().toString(36).slice(2), tag: it.tag, category: it.category || editingExpense.category || visibleCategories[0]?.name || "", qty: it.qty, unitPrice: it.unitPrice }))
           : [emptyItem()],
         receipts: expenseReceipts(editingExpense),
       };
@@ -617,6 +618,10 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const updateItem = (id, field, value) => setForm((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? { ...it, [field]: value } : it)) }));
+  const updateTag = (id, tagName) => {
+    const match = tags.find((t) => t.name === tagName);
+    setForm((f) => ({ ...f, items: f.items.map((it) => (it.id === id ? { ...it, tag: tagName, category: (match && match.defaultCategory) ? match.defaultCategory : it.category } : it)) }));
+  };
   const addItemRow = () => setForm((f) => ({ ...f, items: [...f.items, emptyItem()] }));
   const removeItemRow = (id) => setForm((f) => ({ ...f, items: f.items.length > 1 ? f.items.filter((it) => it.id !== id) : f.items }));
 
@@ -681,9 +686,9 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
                       style={{ border: "none", background: "none", cursor: form.items.length === 1 ? "not-allowed" : "pointer",
                         color: form.items.length === 1 ? "var(--line)" : "var(--rejected)", fontSize: 20, lineHeight: 1, padding: "0 4px" }}>×</button>
                   </div>
-                  <TagPicker value={it.tag} onChange={(v) => updateItem(it.id, "tag", v)} tags={tags}
+                  <TagPicker value={it.tag} onChange={(v) => updateTag(it.id, v)} tags={tags}
                     placeholder="Tea, Taxi, Pen…" fieldStyle={{ ...inputStyle, fontSize: 14 }} />
-                  <CategoryPicker value={it.category} onChange={(v) => updateItem(it.id, "category", v)} categories={categories} placeholder="Category for this item…" />
+                  <CategoryPicker value={it.category} onChange={(v) => updateItem(it.id, "category", v)} categories={visibleCategories} placeholder="Category for this item…" />
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                     <div>
                       <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 3 }}>Qty</div>
@@ -1266,7 +1271,7 @@ function LedgerTab({ staffMap, allAdvances, allExpenses, dateFormat }) {
 }
 
 // ---------- Manage (admin only) ----------
-function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, mergeOptions, onMerge }) {
+function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, mergeOptions, onMerge, extra }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const [merging, setMerging] = useState(false);
@@ -1302,6 +1307,7 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
           <button onClick={() => { setConfirmingRemove((v) => !v); setMerging(false); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
         </div>
       </div>
+      {extra && <div style={{ marginTop: 6 }}>{extra}</div>}
       {confirmingRemove && (
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{name}"? This can't be undone.</span>
@@ -1530,7 +1536,7 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
   );
 }
 
-function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, tags, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount }) {
+function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRenameCategory, onMoveCategory, onMergeCategory, categoryUsageCount, onToggleCategoryHidden, tags, onRemoveTag, onRenameTag, onMergeTag, tagUsageCount, onSetTagDefaultCategory }) {
   const [newCat, setNewCat] = useState("");
   const [catSearch, setCatSearch] = useState("");
   const [tagSearch, setTagSearch] = useState("");
@@ -1569,14 +1575,20 @@ function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRename
                 onMoveUp={() => onMoveCategory(c.id, "up")} onMoveDown={() => onMoveCategory(c.id, "down")}
                 canMoveUp={i > 0} canMoveDown={i < categories.length - 1}
                 mergeOptions={categories.filter((x) => x.id !== c.id).map((x) => x.name)}
-                onMerge={(target) => onMergeCategory(c.id, c.name, target)} />
+                onMerge={(target) => onMergeCategory(c.id, c.name, target)}
+                extra={
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: c.hiddenFromStaff ? "var(--rejected)" : "var(--ink-soft)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!c.hiddenFromStaff} onChange={() => onToggleCategoryHidden(c.id, !!c.hiddenFromStaff)} />
+                    Hide from staff (admins still see it)
+                  </label>
+                } />
             );
           })}
         </div>
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="tags" title="Tags"
-        subtitle="Tags are added automatically when staff type a new item on a claim. Sorted by how often they're used — rarely-used ones near the bottom are worth a look for typos, and can be merged into an existing tag.">
+        subtitle="Tags are added automatically when staff type a new item on a claim. Sorted by how often they're used — rarely-used ones near the bottom are worth a look for typos, and can be merged into an existing tag. Set a default category so staff don't have to pick it themselves — they can still change it manually.">
         {tags.length > 6 && (
           <input value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
@@ -1589,7 +1601,16 @@ function ExpenseSettings({ categories, onAddCategory, onRemoveCategory, onRename
               onRename={(newName) => onRenameTag(t.id, t.name, newName)}
               onRemove={() => onRemoveTag(t.id, t.name)}
               mergeOptions={tags.filter((x) => x.id !== t.id).map((x) => x.name)}
-              onMerge={(target) => onMergeTag(t.id, t.name, target)} />
+              onMerge={(target) => onMergeTag(t.id, t.name, target)}
+              extra={
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Default category:</span>
+                  <select value={t.defaultCategory || ""} onChange={(e) => onSetTagDefaultCategory(t.id, e.target.value)} style={{ ...smallSelect, fontSize: 11.5 }}>
+                    <option value="">None</option>
+                    {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+              } />
           ))}
         </div>
       </CollapsibleCard>
@@ -3103,6 +3124,14 @@ function MainApp({ user }) {
     flash(`Renamed to "${clean}"${affected.length ? ` (updated ${affected.length} transaction${affected.length === 1 ? "" : "s"})` : ""}.`);
   };
 
+  const toggleCategoryHidden = async (id, current) => {
+    await db.ref("categories/" + id).update({ hiddenFromStaff: !current });
+  };
+
+  const setTagDefaultCategory = async (id, categoryName) => {
+    await db.ref("tags/" + id).update({ defaultCategory: categoryName || null });
+  };
+
   const mergeCategory = async (id, fromName, toName) => {
     const clean = toName.trim();
     if (!clean || clean === fromName) return;
@@ -3537,7 +3566,7 @@ function MainApp({ user }) {
         {section === "expense" && tab === "add" && (
           <AddExpense key={editingExpense ? "edit-" + editingExpense.id : "new"}
             categories={sortedCategories} tags={tags} onSubmit={addExpense} onUpdate={updateExpense}
-            editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} />
+            editingExpense={editingExpense} onCancelEdit={cancelEdit} isMobile={isMobile} dateFormat={dateFormat} canSeeHidden={isAdmin} />
         )}
         {section === "expense" && tab === "mine" && <MyExpenses myName={me.name} expenses={myExpenses} myAdvances={myAdvances} onWithdraw={withdraw} onEdit={startEditOwn} onExport={exportCSV} dateFormat={dateFormat} />}
         {section === "expense" && tab === "analysis" && <MyAnalysis expenses={myExpenses} />}
@@ -3563,8 +3592,8 @@ function MainApp({ user }) {
         {section === "expense" && tab === "expenseSettings" && isSuperAdmin && (
           <ExpenseSettings
             categories={sortedCategories} onAddCategory={addCategory} onRemoveCategory={removeCategory} onRenameCategory={renameCategory} onMoveCategory={moveCategory}
-            onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount}
-            tags={tags} onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount}
+            onMergeCategory={mergeCategory} categoryUsageCount={categoryUsageCount} onToggleCategoryHidden={toggleCategoryHidden}
+            tags={tags} onRemoveTag={removeTag} onRenameTag={renameTag} onMergeTag={mergeTag} tagUsageCount={tagUsageCount} onSetTagDefaultCategory={setTagDefaultCategory}
           />
         )}
 
