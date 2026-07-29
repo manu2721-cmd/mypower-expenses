@@ -918,18 +918,33 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
   const [statusFilter, setStatusFilter] = useState("All");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [search, setSearch] = useState("");
   const [view, setView] = useState("table");
   const [reviewNoteDraft, setReviewNoteDraft] = useState({});
   const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(1);
 
   const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
+  const q = search.trim().toLowerCase();
 
-  const filtered = useMemo(() => expenses.filter((e) =>
-    (staffFilter === "All" || e.staffName === staffFilter) &&
-    (catFilter === "All" || expenseCategories(e).includes(catFilter)) &&
-    (statusFilter === "All" || e.status === statusFilter) &&
-    (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate)
-  ).sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, staffFilter, catFilter, statusFilter, fromDate, toDate]);
+  const filtered = useMemo(() => expenses.filter((e) => {
+    if (!(staffFilter === "All" || e.staffName === staffFilter)) return false;
+    if (!(catFilter === "All" || expenseCategories(e).includes(catFilter))) return false;
+    if (!(statusFilter === "All" || e.status === statusFilter)) return false;
+    if (fromDate && e.date < fromDate) return false;
+    if (toDate && e.date > toDate) return false;
+    if (q) {
+      const hay = [e.staffName, e.expenseNo, e.paymentMode, e.status, e.note, e.date, String(e.amount), ...(e.items || []).flatMap((it) => [it.tag, it.category])]
+        .filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")), [expenses, staffFilter, catFilter, statusFilter, fromDate, toDate, q]);
+
+  useEffect(() => { setPage(1); }, [staffFilter, catFilter, statusFilter, fromDate, toDate, q, pageSize]);
+  const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageItems = pageSize === "all" ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const totals = useMemo(() => {
     const t = { total: 0, pending: 0, approved: 0, paid: 0, rejected: 0 };
@@ -972,6 +987,8 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff, category, item, note, voucher no…"
+          style={{ ...smallSelect, flex: "1 1 220px", minWidth: 200 }} />
         <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={smallSelect}>
           <option>All</option>{staffNameList.map((s) => <option key={s}>{s}</option>)}
         </select>
@@ -995,8 +1012,29 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
 
       {view === "table" && (
         <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+              {filtered.length === 0 ? "No results" : `Showing ${pageSize === "all" ? 1 : (page - 1) * pageSize + 1}–${pageSize === "all" ? filtered.length : Math.min(page * pageSize, filtered.length)} of ${filtered.length}`}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>Rows</span>
+              <select value={pageSize} onChange={(e) => setPageSize(e.target.value === "all" ? "all" : Number(e.target.value))} style={{ ...smallSelect, padding: "5px 8px" }}>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value="all">All</option>
+              </select>
+              {pageSize !== "all" && totalPages > 1 && (
+                <>
+                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5, opacity: page === 1 ? 0.4 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>Page {page} of {totalPages}</span>
+                  <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5, opacity: page === totalPages ? 0.4 : 1 }}>Next →</button>
+                </>
+              )}
+            </div>
+          </div>
           {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No expenses match these filters.</Card>}
-          {filtered.map((e) => (
+          {pageItems.map((e) => (
             <div key={e.id} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "13px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 {expenseReceipts(e).length > 0 && (
@@ -1076,6 +1114,13 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
               </div>
             </div>
           ))}
+          {pageSize !== "all" && totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 4 }}>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5, opacity: page === 1 ? 0.4 : 1 }}>← Prev</button>
+              <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>Page {page} of {totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5, opacity: page === totalPages ? 0.4 : 1 }}>Next →</button>
+            </div>
+          )}
         </div>
       )}
       {view === "category" && <Card><SimpleBarChart data={byCategory} /></Card>}
