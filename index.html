@@ -22,7 +22,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
   :root {
     --paper: #FAF6EC; --paper-dark: #F1EAD9; --card: #FFFDF6; --ink: #1A1A1A; --ink-soft: #6B6554;
-    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52; --on-leave: #7A6FB0;
+    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52; --on-leave: #7A6FB0; --no-checkout: #C1440E;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--paper-dark); }
@@ -1758,6 +1758,7 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
 // ---------- Main App ----------
 function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
   const [selDate, setSelDate] = useState(localDateKey());
+  const [onlyNoCheckout, setOnlyNoCheckout] = useState(false);
   const pending = allAttendance.filter((a) => a.status === "awaiting_checkin");
   const dayRecords = allAttendance.filter((a) => a.date === selDate);
   const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
@@ -1791,7 +1792,13 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>Team attendance</div>
-          <input type="date" value={selDate} onChange={(e) => setSelDate(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--no-checkout)", cursor: "pointer" }}>
+              <input type="checkbox" checked={onlyNoCheckout} onChange={(e) => setOnlyNoCheckout(e.target.checked)} />
+              Not checked out only
+            </label>
+            <input type="date" value={selDate} onChange={(e) => setSelDate(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+          </div>
         </div>
         <div style={{ display: "grid", gap: 2 }}>
           {staffList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
@@ -1799,16 +1806,19 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
             .map((s) => {
               const rec = dayRecords.find((a) => a.staffUid === s.uid);
               const status = rec ? rec.status : "absent";
-              return { s, rec, status };
+              const noCheckout = ["present", "late", "half_day"].includes(status) && rec && rec.checkInTime && !rec.checkOutTime;
+              return { s, rec, status, noCheckout };
             })
+            .filter((r) => !onlyNoCheckout || r.noCheckout)
             .sort((a, b) => {
               const order = { absent: 0, awaiting_checkin: 1, late: 2, half_day: 3, on_leave: 4, present: 5 };
               const oa = order[a.status] ?? 6, ob = order[b.status] ?? 6;
+              if (a.noCheckout !== b.noCheckout) return a.noCheckout ? -1 : 1;
               return oa !== ob ? oa - ob : a.s.name.localeCompare(b.s.name);
             })
-            .map(({ s, rec, status }) => {
+            .map(({ s, rec, status, noCheckout }) => {
             return (
-              <div key={s.uid} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+              <div key={s.uid} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", background: noCheckout ? "rgba(193,68,14,0.06)" : "transparent" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13.5, gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <span>{s.name}</span>
@@ -1816,6 +1826,7 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
+                    {noCheckout && <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--no-checkout)", border: "1px solid var(--no-checkout)", borderRadius: 999, padding: "2px 8px" }}>No checkout</span>}
                     <StatusBadge status={status} metaMap={ATT_STATUS_META} />
                   </div>
                 </div>
@@ -2229,6 +2240,7 @@ function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onE
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   const photo = myProfile && myProfile.photo;
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
@@ -2245,7 +2257,16 @@ function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onE
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: isMobile ? "20px 20px 40px" : "20px 20px 60px", textAlign: "center" }}>
         <Logo large />
         <div style={{ fontSize: 14, color: "var(--ink-soft)", margin: "16px 0 4px" }}>Hi, {me.name}</div>
-        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 34, maxWidth: 380 }}>Log an expense, mark your attendance, or tap your photo up top to fill in or check your profile.</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 20, maxWidth: 380 }}>Log an expense, mark your attendance, or tap your photo up top to fill in or check your profile.</div>
+        {profilePending && !bannerDismissed && (
+          <div style={{ width: "100%", maxWidth: 420, background: "var(--card)", border: "1px solid var(--rejected)", borderRadius: 10, padding: "12px 14px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", textAlign: "left" }}>
+            <div style={{ fontSize: 12.5, color: "var(--rejected)", fontWeight: 600 }}>Your profile is incomplete — please submit it.</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={onEnterProfile} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Complete now</button>
+              <button onClick={() => setBannerDismissed(true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Later</button>
+            </div>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
           <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
           <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
@@ -2712,6 +2733,29 @@ function MainApp({ user }) {
   const [toast, setToast] = useState("");
   const [editingExpense, setEditingExpense] = useState(null);
   const [editReturnTab, setEditReturnTab] = useState("mine");
+
+  // ---------- Back button support: every section/tab change pushes a browser
+  // history entry, so the phone's/browser's back button steps back through the
+  // app's own navigation instead of exiting straight to the home screen. Only
+  // exits the app once the person is back at the very first screen they saw.
+  const isPoppingRef = useRef(false);
+  useEffect(() => {
+    history.replaceState({ section: "home", tab: "add" }, "", "");
+  }, []);
+  useEffect(() => {
+    if (isPoppingRef.current) { isPoppingRef.current = false; return; }
+    history.pushState({ section, tab }, "", "");
+  }, [section, tab]);
+  useEffect(() => {
+    const onPopState = (e) => {
+      isPoppingRef.current = true;
+      const st = e.state || { section: "home", tab: "add" };
+      setSection(st.section || "home");
+      setTab(st.tab || "add");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
 
