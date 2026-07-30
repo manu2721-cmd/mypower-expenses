@@ -2243,10 +2243,12 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
     return [...allAttendance, ...synthetic];
   }, [allAttendance, staffMap, locsById, fromDate, toDate]);
 
+  const isNoCheckout = (a) => ["present", "late", "half_day"].includes(a.status) && a.checkInTime && !a.checkOutTime;
+
   const filtered = useMemo(() => withAbsences.filter((a) => {
     const s = staffMap[a.staffUid] || {};
     return (staffFilter === "All" || s.name === staffFilter) &&
-      (statusFilter === "All" || a.status === statusFilter) &&
+      (statusFilter === "All" || (statusFilter === "no_checkout" ? isNoCheckout(a) : a.status === statusFilter)) &&
       (locFilter === "All" || a.locationId === locFilter) &&
       (!fromDate || a.date >= fromDate) && (!toDate || a.date <= toDate);
   }).sort((a, b) => b.date.localeCompare(a.date)), [withAbsences, staffMap, staffFilter, statusFilter, locFilter, fromDate, toDate]);
@@ -2311,6 +2313,7 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={smallSelect}>
           <option value="All">All</option>{Object.entries(ATT_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          <option value="no_checkout">No checkout</option>
         </select>
         <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} style={smallSelect}>
           <option value="All">All</option>{locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -2332,8 +2335,9 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
           {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No attendance records match these filters.</Card>}
           {filtered.map((a) => {
             const s = staffMap[a.staffUid] || {};
+            const noCheckout = isNoCheckout(a);
             return (
-              <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+              <div key={a.staffUid + a.date} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap", background: noCheckout ? "rgba(193,68,14,0.06)" : "transparent" }}>
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || a.staffUid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {fmtDate(a.date, dateFormat)}</span></div>
                   <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
@@ -2344,7 +2348,10 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
                   )}
                   {a.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 2 }}>"{a.lateRemark}"</div>}
                 </div>
-                <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {noCheckout && <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--no-checkout)", border: "1px solid var(--no-checkout)", borderRadius: 999, padding: "2px 8px" }}>No checkout</span>}
+                  <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+                </div>
               </div>
             );
           })}
