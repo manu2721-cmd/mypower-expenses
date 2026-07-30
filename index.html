@@ -68,6 +68,7 @@ const ATT_STATUS_META = {
   absent: { color: "var(--rejected)", label: "Absent" },
   awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
   on_leave: { color: "var(--on-leave)", label: "On Leave" },
+  week_off: { color: "var(--ink-soft)", label: "Week Off" },
 };
 const LEAVE_TYPES = [
   { id: "sick", label: "Sick" },
@@ -1377,16 +1378,18 @@ function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, can
 
 function LocationRow({ loc, routers, onUpdate, onRemove, onAddRouter, onRemoveRouter }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 });
+  const [draft, setDraft] = useState({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0, weeklyOff: loc.weeklyOff || [] });
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [newSsid, setNewSsid] = useState("");
   const [newBssid, setNewBssid] = useState("");
   const myRouters = routers.filter((r) => r.locationId === loc.id);
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const save = () => {
-    if (draft.name.trim()) onUpdate(loc.id, { name: draft.name.trim(), shiftStart: draft.shiftStart, graceMinutes: Number(draft.graceMinutes) || 0 });
+    if (draft.name.trim()) onUpdate(loc.id, { name: draft.name.trim(), shiftStart: draft.shiftStart, graceMinutes: Number(draft.graceMinutes) || 0, weeklyOff: draft.weeklyOff });
     setEditing(false);
   };
+  const toggleDay = (i) => setDraft((d) => ({ ...d, weeklyOff: d.weeklyOff.includes(i) ? d.weeklyOff.filter((x) => x !== i) : [...d.weeklyOff, i] }));
 
   return (
     <div style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
@@ -1403,18 +1406,27 @@ function LocationRow({ loc, routers, onUpdate, onRemove, onAddRouter, onRemoveRo
         ) : (
           <span style={{ flex: 1 }}>
             {loc.name}
-            <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>· shift {loc.shiftStart || "09:00"} · {loc.graceMinutes ?? 0} min grace</span>
+            <span style={{ fontSize: 11, color: "var(--ink-soft)", marginLeft: 6 }}>· shift {loc.shiftStart || "09:00"} · {loc.graceMinutes ?? 0} min grace{loc.weeklyOff && loc.weeklyOff.length > 0 ? ` · off ${loc.weeklyOff.slice().sort().map((i) => DAY_NAMES[i]).join(", ")}` : ""}</span>
           </span>
         )}
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {editing ? (
             <button onClick={save} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Save</button>
           ) : (
-            <button onClick={() => { setDraft({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0 }); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>
+            <button onClick={() => { setDraft({ name: loc.name, shiftStart: loc.shiftStart || "09:00", graceMinutes: loc.graceMinutes ?? 0, weeklyOff: loc.weeklyOff || [] }); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11 }}>Edit</button>
           )}
           <button onClick={() => setConfirmingRemove((v) => !v)} style={{ ...ghostBtn, padding: "4px 8px", fontSize: 11, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
         </div>
       </div>
+      {editing && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>Weekly off:</span>
+          {DAY_NAMES.map((d, i) => (
+            <button key={i} type="button" onClick={() => toggleDay(i)}
+              style={{ ...ghostBtn, padding: "4px 9px", fontSize: 11, background: draft.weeklyOff.includes(i) ? "var(--ink)" : "var(--card)", color: draft.weeklyOff.includes(i) ? "var(--paper)" : "var(--ink)" }}>{d}</button>
+          ))}
+        </div>
+      )}
       {confirmingRemove && (
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11.5, color: "var(--rejected)" }}>Delete "{loc.name}" and its {myRouters.length} router{myRouters.length === 1 ? "" : "s"}? This can't be undone.</span>
@@ -1829,6 +1841,11 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
   const dayRecords = allAttendance.filter((a) => a.date === selDate);
   const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
   const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+  const selDow = new Date(selDate + "T00:00:00").getDay();
+  const isWeeklyOff = (s) => {
+    const loc = s.locationId ? locations.find((l) => l.id === s.locationId) : null;
+    return !!(loc && loc.weeklyOff && loc.weeklyOff.includes(selDow));
+  };
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -1871,14 +1888,14 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
           {staffList
             .map((s) => {
               const rec = dayRecords.find((a) => a.staffUid === s.uid);
-              const status = rec ? rec.status : "absent";
+              const status = rec ? rec.status : (isWeeklyOff(s) ? "week_off" : "absent");
               const noCheckout = ["present", "late", "half_day"].includes(status) && rec && rec.checkInTime && !rec.checkOutTime;
               return { s, rec, status, noCheckout };
             })
             .filter((r) => !onlyNoCheckout || r.noCheckout)
             .sort((a, b) => {
-              const order = { absent: 0, awaiting_checkin: 1, late: 2, half_day: 3, on_leave: 4, present: 5 };
-              const oa = order[a.status] ?? 6, ob = order[b.status] ?? 6;
+              const order = { absent: 0, awaiting_checkin: 1, late: 2, half_day: 3, on_leave: 4, week_off: 5, present: 6 };
+              const oa = order[a.status] ?? 7, ob = order[b.status] ?? 7;
               if (a.noCheckout !== b.noCheckout) return a.noCheckout ? -1 : 1;
               return oa !== ob ? oa - ob : a.s.name.localeCompare(b.s.name);
             })
@@ -1902,6 +1919,7 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
                     <MapLink lat={rec.checkOutGeoLat} lng={rec.checkOutGeoLng} label="View check-out location" />
                   </div>
                 )}
+                {rec && rec.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 3 }}>"{rec.lateRemark}"</div>}
               </div>
             );
           })}
@@ -1911,7 +1929,30 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
   );
 }
 
-function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, attBusy, attError, dateFormat }) {
+function LateRemarkBox({ remark, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(remark || "");
+  if (!editing && remark) {
+    return (
+      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 6 }}>
+        <span style={{ fontStyle: "italic" }}>"{remark}"</span>
+        <button onClick={() => { setDraft(remark); setEditing(true); }} style={{ ...ghostBtn, padding: "2px 7px", fontSize: 10.5, marginLeft: 6 }}>Edit</button>
+      </div>
+    );
+  }
+  if (!editing) {
+    return <button onClick={() => { setDraft(""); setEditing(true); }} style={{ ...ghostBtn, padding: "4px 9px", fontSize: 11, marginTop: 6 }}>+ Add a note about being late</button>;
+  }
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+      <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. traffic, doctor visit…" style={{ ...inputStyle, padding: "6px 9px", fontSize: 12, flex: 1, minWidth: 140 }} />
+      <button onClick={() => { onSave(draft.trim()); setEditing(false); }} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11 }}>Save</button>
+      <button onClick={() => setEditing(false)} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11 }}>Cancel</button>
+    </div>
+  );
+}
+
+function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, onSaveRemark, attBusy, attError, dateFormat }) {
   const [note, setNote] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [halfDayToggle, setHalfDayToggle] = useState(false);
@@ -1965,6 +2006,7 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
             </div>
             {today.checkedInBy && today.checkedInBy !== "self" && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 6 }}>Checked in by {today.checkedInBy}</div>}
             <MapLink lat={today.geoLat} lng={today.geoLng} label="View my check-in location" />
+            {["late", "half_day"].includes(today.status) && <LateRemarkBox remark={today.lateRemark} onSave={(text) => onSaveRemark(dateKey, text)} />}
             <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
               <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
             </label>
@@ -1973,9 +2015,12 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
         )}
 
         {today && today.checkInTime && today.checkOutTime && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtTimeLabel(today.checkInTime)} – {fmtTimeLabel(today.checkOutTime)}</div>
-            <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtTimeLabel(today.checkInTime)} – {fmtTimeLabel(today.checkOutTime)}</div>
+              <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
+            </div>
+            {["late", "half_day"].includes(today.status) && <LateRemarkBox remark={today.lateRemark} onSave={(text) => onSaveRemark(dateKey, text)} />}
           </div>
         )}
       </Card>
@@ -1997,6 +2042,7 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
                     <MapLink lat={a.checkOutGeoLat} lng={a.checkOutGeoLng} label="Check-out location" />
                   </div>
                 )}
+                {a.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 3 }}>"{a.lateRemark}"</div>}
               </div>
               <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
             </div>
@@ -2155,31 +2201,57 @@ function TeamLeave({ allLeaveRequests, staffMap, dateFormat, onApprove, onReject
 }
 
 // ---------- Attendance Analysis: dynamic staff-wise / status-wise / time-period
-// filters and charts over existing attendance records. Note: this reports on
-// records that exist in the attendance node — it doesn't retroactively compute
-// "no record at all" absences across a date range, since that needs a defined
-// working-days calendar per location (a bigger, separate feature).
+// filters and charts. Fills in synthetic "Absent" entries for days with no record
+// (matching Team Attendance's convention), skipping each location's weekly-off days.
 function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) {
   const [staffFilter, setStaffFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [locFilter, setLocFilter] = useState("All");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; });
+  const [toDate, setToDate] = useState(() => localDateKey());
   const [view, setView] = useState("table");
 
   const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
   const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
+  const locsById = useMemo(() => Object.fromEntries(locations.map((l) => [l.id, l])), [locations]);
 
-  const filtered = useMemo(() => allAttendance.filter((a) => {
+  // Absent staff never get a database record for that day, so to show them here
+  // (matching how Team Attendance already treats "no record" as Absent), we fill in
+  // one synthetic Absent entry per active staff for every day in the selected range
+  // that has neither a real attendance record nor an approved-leave day, skipping
+  // that staff's location's weekly-off days, up to today.
+  const withAbsences = useMemo(() => {
+    if (!fromDate || !toDate) return allAttendance;
+    const activeStaff = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+    const existingKeys = new Set(allAttendance.map((a) => a.staffUid + "|" + a.date));
+    const todayKey = localDateKey();
+    const cappedTo = toDate > todayKey ? todayKey : toDate;
+    const synthetic = [];
+    for (let d = new Date(fromDate + "T00:00:00"); d.toISOString().slice(0, 10) <= cappedTo; d.setDate(d.getDate() + 1)) {
+      const dateKey = d.toISOString().slice(0, 10);
+      const dow = d.getDay();
+      activeStaff.forEach((s) => {
+        const loc = s.locationId ? locsById[s.locationId] : null;
+        const weeklyOff = (loc && loc.weeklyOff) || [];
+        if (weeklyOff.includes(dow)) return;
+        if (!existingKeys.has(s.uid + "|" + dateKey)) {
+          synthetic.push({ staffUid: s.uid, date: dateKey, status: "absent", locationId: s.locationId });
+        }
+      });
+    }
+    return [...allAttendance, ...synthetic];
+  }, [allAttendance, staffMap, locsById, fromDate, toDate]);
+
+  const filtered = useMemo(() => withAbsences.filter((a) => {
     const s = staffMap[a.staffUid] || {};
     return (staffFilter === "All" || s.name === staffFilter) &&
       (statusFilter === "All" || a.status === statusFilter) &&
       (locFilter === "All" || a.locationId === locFilter) &&
       (!fromDate || a.date >= fromDate) && (!toDate || a.date <= toDate);
-  }).sort((a, b) => b.date.localeCompare(a.date)), [allAttendance, staffMap, staffFilter, statusFilter, locFilter, fromDate, toDate]);
+  }).sort((a, b) => b.date.localeCompare(a.date)), [withAbsences, staffMap, staffFilter, statusFilter, locFilter, fromDate, toDate]);
 
   const totals = useMemo(() => {
-    const t = { total: 0, present: 0, late: 0, half_day: 0, on_leave: 0, awaiting_checkin: 0 };
+    const t = { total: 0, present: 0, late: 0, half_day: 0, on_leave: 0, awaiting_checkin: 0, absent: 0 };
     filtered.forEach((a) => { t.total++; if (t[a.status] != null) t[a.status]++; });
     return t;
   }, [filtered]);
@@ -2205,11 +2277,11 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
   }, [filtered]);
 
   const exportCSV = () => {
-    const header = ["Date", "Staff", "Status", "Check-in", "Check-out", "Location", "Method", "Note"];
+    const header = ["Date", "Staff", "Status", "Check-in", "Check-out", "Location", "Method", "Note", "Late Remark"];
     const lines = [header.join(",")];
     filtered.forEach((a) => {
       const s = staffMap[a.staffUid] || {};
-      const cells = [a.date, s.name || a.staffUid, (ATT_STATUS_META[a.status] || {}).label || a.status, fmtTimeLabel(a.checkInTime), fmtTimeLabel(a.checkOutTime), a.locationId ? locName(a.locationId) : "", a.method || "", a.note || ""]
+      const cells = [a.date, s.name || a.staffUid, (ATT_STATUS_META[a.status] || {}).label || a.status, fmtTimeLabel(a.checkInTime), fmtTimeLabel(a.checkOutTime), a.locationId ? locName(a.locationId) : "", a.method || "", a.note || "", a.lateRemark || ""]
         .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
       lines.push(cells.join(","));
     });
@@ -2227,6 +2299,7 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
         <StatCard label="Present" value={totals.present} accent="var(--approved)" format={fmtCount} />
         <StatCard label="Late" value={totals.late} accent="var(--pending)" format={fmtCount} />
         <StatCard label="Half day" value={totals.half_day} accent="var(--paid)" format={fmtCount} />
+        <StatCard label="Absent" value={totals.absent} accent="var(--rejected)" format={fmtCount} />
         <StatCard label="On leave" value={totals.on_leave} accent="var(--on-leave)" format={fmtCount} />
         <StatCard label="Awaiting approval" value={totals.awaiting_checkin} accent="var(--pending)" format={fmtCount} />
       </div>
@@ -2268,6 +2341,7 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
                   {(a.geoLat != null || a.checkOutGeoLat != null) && (
                     <div style={{ marginTop: 2 }}><MapLink lat={a.geoLat} lng={a.geoLng} label="View check-in location" /></div>
                   )}
+                  {a.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 2 }}>"{a.lateRemark}"</div>}
                 </div>
                 <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
               </div>
@@ -3441,6 +3515,11 @@ function MainApp({ user }) {
     setAttBusy(false);
   };
 
+  const saveLateRemark = async (dateKey, text) => {
+    await db.ref(`attendance/${user.uid}/${dateKey}`).update({ lateRemark: text || null });
+    flash("Note saved.");
+  };
+
   const approveCheckInRequest = async (staffUid, dateKey) => {
     const staffRec = staffMap[staffUid];
     const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
@@ -3645,7 +3724,7 @@ function MainApp({ user }) {
         {section === "attendance" && tab === "attendance" && (
           <AttendanceTab
             me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
-            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut}
+            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut} onSaveRemark={saveLateRemark}
             attBusy={attBusy} attError={attError} dateFormat={dateFormat}
           />
         )}
