@@ -2226,9 +2226,10 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
     const existingKeys = new Set(allAttendance.map((a) => a.staffUid + "|" + a.date));
     const todayKey = localDateKey();
     const cappedTo = toDate > todayKey ? todayKey : toDate;
+    const localKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const synthetic = [];
-    for (let d = new Date(fromDate + "T00:00:00"); d.toISOString().slice(0, 10) <= cappedTo; d.setDate(d.getDate() + 1)) {
-      const dateKey = d.toISOString().slice(0, 10);
+    for (let d = new Date(fromDate + "T00:00:00"); localKeyOf(d) <= cappedTo; d.setDate(d.getDate() + 1)) {
+      const dateKey = localKeyOf(d);
       const dow = d.getDay();
       activeStaff.forEach((s) => {
         const loc = s.locationId ? locsById[s.locationId] : null;
