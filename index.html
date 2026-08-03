@@ -2390,12 +2390,12 @@ function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnt
   const photo = myProfile && myProfile.photo;
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [checkoutDismissed, setCheckoutDismissed] = useState(false);
-  const todayKey = localDateKey();
-  const missedCheckout = useMemo(() => {
-    const missed = (myAttendance || []).filter((a) => a.date < todayKey && a.checkInTime && !a.checkOutTime);
-    missed.sort((a, b) => b.date.localeCompare(a.date));
-    return missed[0] || null;
-  }, [myAttendance, todayKey]);
+  const yesterdayKey = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+  const missedCheckout = useMemo(() => (myAttendance || []).find((a) => a.date === yesterdayKey && a.checkInTime && !a.checkOutTime) || null, [myAttendance, yesterdayKey]);
   const firstName = (me.name || "").split(" ")[0] || me.name;
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
