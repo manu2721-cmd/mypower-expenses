@@ -2384,11 +2384,19 @@ function HomeCard({ label, sub, onClick, accent }) {
   );
 }
 
-function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onSignOut }) {
+function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onSignOut }) {
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   const photo = myProfile && myProfile.photo;
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [checkoutDismissed, setCheckoutDismissed] = useState(false);
+  const todayKey = localDateKey();
+  const missedCheckout = useMemo(() => {
+    const missed = (myAttendance || []).filter((a) => a.date < todayKey && a.checkInTime && !a.checkOutTime);
+    missed.sort((a, b) => b.date.localeCompare(a.date));
+    return missed[0] || null;
+  }, [myAttendance, todayKey]);
+  const firstName = (me.name || "").split(" ")[0] || me.name;
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
@@ -2413,6 +2421,12 @@ function HomeScreen({ me, myProfile, isSuperAdmin, isMobile, onEnterExpense, onE
               <button onClick={onEnterProfile} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Complete now</button>
               <button onClick={() => setBannerDismissed(true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5 }}>Later</button>
             </div>
+          </div>
+        )}
+        {missedCheckout && !checkoutDismissed && (
+          <div style={{ width: "100%", maxWidth: 420, background: "var(--card)", border: "1px solid var(--no-checkout)", borderRadius: 10, padding: "12px 14px", marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", textAlign: "left" }}>
+            <div style={{ fontSize: 12.5, color: "var(--no-checkout)", fontWeight: 600 }}>Hi {firstName} — looks like you forgot to check out yesterday. Don't forget today! Have a good day 🙂</div>
+            <button onClick={() => setCheckoutDismissed(true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--no-checkout)", color: "var(--no-checkout)" }}>Got it</button>
           </div>
         )}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
@@ -3651,7 +3665,7 @@ function MainApp({ user }) {
 
   if (section === "home") {
     return (
-      <HomeScreen me={me} myProfile={myProfile} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+      <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
         onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople}
         onSignOut={() => auth.signOut()} />
     );
