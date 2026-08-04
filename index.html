@@ -641,6 +641,33 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
   };
   const removeReceipt = (idx) => setForm((f) => ({ ...f, receipts: f.receipts.filter((_, i) => i !== idx) }));
 
+  // Let people paste a screenshot or copied photo straight in (Ctrl+V / long-press
+  // paste on mobile) instead of always having to browse for a file.
+  useEffect(() => {
+    const onPaste = async (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            setFileError(""); setCompressing(true);
+            try {
+              const dataUrl = await resizeImageFile(file);
+              setForm((f) => ({ ...f, receipts: [...f.receipts, dataUrl] }));
+            } catch (err) {
+              setFileError("Could not process that pasted image — try a different one.");
+            }
+            setCompressing(false);
+          }
+          break;
+        }
+      }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, []);
+
   const total = itemsTotal(form.items);
   const hasValidRow = form.items.some((it) => it.tag.trim() && it.category && Number(it.qty) > 0 && Number(it.unitPrice) > 0);
   const canSubmit = hasValidRow && total > 0;
@@ -729,6 +756,7 @@ function AddExpense({ categories, tags, onSubmit, onUpdate, editingExpense, onCa
           <div>
             <input type="file" accept="image/*" capture="environment" onChange={handleReceiptFile} disabled={compressing}
               style={{ fontSize: 13 }} />
+            <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 4 }}>Tip: you can also paste (Ctrl+V) a copied photo or screenshot instead of browsing for a file.</div>
             {compressing && <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>Compressing photo…</div>}
             {fileError && <div style={{ fontSize: 12, color: "var(--rejected)", marginTop: 4 }}>{fileError}</div>}
           </div>
