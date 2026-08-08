@@ -1758,7 +1758,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onSyncDepartments, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1795,7 +1795,7 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <CollapsibleCard storageKey="departments" title="Departments" subtitle="Shown as a dropdown when an admin sets someone's department in their Profile.">
+      <CollapsibleCard storageKey="departments" title="Departments" subtitle="Shown as a dropdown when an admin sets someone's department in their Profile. Also shown to everyone in the Team tab.">
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Department name" style={{ ...inputStyle, flex: 1 }}
             onKeyDown={(e) => { if (e.key === "Enter") { onAddDepartment(newDept); setNewDept(""); } }} />
@@ -1809,6 +1809,7 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
               onRename={(n) => onRenameDepartment(d.id, d.name, n)} onRemove={() => onRemoveDepartment(d.id, d.name)} />;
           })}
         </div>
+        <button onClick={onSyncDepartments} style={{ ...ghostBtn, marginTop: 10, fontSize: 12 }}>Sync department & photo to Team tab (one-time, run once after upgrading)</button>
       </CollapsibleCard>
 
       <CollapsibleCard storageKey="designations" title="Designations" subtitle="Job titles shown as a dropdown when an admin sets someone's designation in their Profile.">
@@ -1862,6 +1863,60 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
 }
 
 // ---------- Main App ----------
+// ---------- Team: read-only availability view for everyone (name, department,
+// status only — no GPS, times, or check-in/out actions; those stay admin-only
+// in Team Attendance). Always shows today only — no browsing past dates.
+function TeamAvailability({ allAttendance, staffMap, locations, dateFormat }) {
+  const today = localDateKey();
+  const dayRecords = allAttendance.filter((a) => a.date === today);
+  const staffList = Object.entries(staffMap || {}).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, ...s }));
+  const todayDow = new Date(today + "T00:00:00").getDay();
+  const isWeeklyOff = (s) => {
+    const loc = s.locationId ? locations.find((l) => l.id === s.locationId) : null;
+    return !!(loc && loc.weeklyOff && loc.weeklyOff.includes(todayDow));
+  };
+
+  const rows = staffList.map((s) => {
+    const rec = dayRecords.find((a) => a.staffUid === s.uid);
+    const status = rec ? rec.status : (isWeeklyOff(s) ? "week_off" : "absent");
+    return { s, status };
+  }).sort((a, b) => {
+    const order = { absent: 0, awaiting_checkin: 1, late: 2, half_day: 3, on_leave: 4, week_off: 5, present: 6 };
+    const oa = order[a.status] ?? 7, ob = order[b.status] ?? 7;
+    return oa !== ob ? oa - ob : a.s.name.localeCompare(b.s.name);
+  });
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <Card>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600 }}>Team</div>
+          <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>{fmtDate(today, dateFormat)}</div>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {rows.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No active staff.</div>}
+          {rows.map(({ s, status }) => (
+            <div key={s.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {s.photo ? (
+                  <img src={s.photo} alt={s.name} style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--line)" }} />
+                ) : (
+                  <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--paper)", border: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontFamily: "'Lora', serif", color: "var(--ink-soft)", flexShrink: 0 }}>{(s.name || "?")[0]}</div>
+                )}
+                <div>
+                  <span style={{ fontSize: 13.5 }}>{s.name}</span>
+                  {s.department && <span style={{ fontSize: 11.5, color: "var(--ink-soft)", marginLeft: 6 }}>{s.department}</span>}
+                </div>
+              </div>
+              <StatusBadge status={status} metaMap={ATT_STATUS_META} />
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
   const [selDate, setSelDate] = useState(localDateKey());
   const [onlyNoCheckout, setOnlyNoCheckout] = useState(false);
@@ -3055,7 +3110,6 @@ function MainApp({ user }) {
   }, [isAdmin]);
 
   useEffect(() => {
-    if (!isAdmin) { setAllAttendance([]); return; }
     const ref = db.ref("attendance");
     const cb = (snap) => {
       const all = snap.val() || {};
@@ -3067,7 +3121,7 @@ function MainApp({ user }) {
     };
     ref.on("value", cb);
     return () => ref.off("value", cb);
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) { setAllLeaveRequests([]); return; }
@@ -3428,15 +3482,26 @@ function MainApp({ user }) {
     const clean = newName.trim();
     if (!clean || clean === oldName) return;
     const updates = { [`departments/${id}/name`]: clean };
-    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === oldName) updates[`staffProfile/${uid}/department`] = clean; });
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === oldName) { updates[`staffProfile/${uid}/department`] = clean; updates[`staff/${uid}/department`] = clean; } });
     await db.ref().update(updates);
     flash(`Renamed to "${clean}".`);
   };
   const removeDepartment = async (id, name) => {
     const updates = { [`departments/${id}`]: null };
-    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === name) updates[`staffProfile/${uid}/department`] = null; });
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => { if (p.department === name) { updates[`staffProfile/${uid}/department`] = null; updates[`staff/${uid}/department`] = null; } });
     await db.ref().update(updates);
     flash("Department removed.");
+  };
+  const syncAllDepartments = async () => {
+    const updates = {};
+    let count = 0;
+    Object.entries(allProfiles || {}).forEach(([uid, p]) => {
+      if (p.department && p.department !== (staffMap[uid] && staffMap[uid].department)) { updates[`staff/${uid}/department`] = p.department; count++; }
+      if (p.photo && p.photo !== (staffMap[uid] && staffMap[uid].photo)) { updates[`staff/${uid}/photo`] = p.photo; count++; }
+    });
+    if (count === 0) { flash("Already in sync — nothing to do."); return; }
+    await db.ref().update(updates);
+    flash(`Synced ${count} field${count === 1 ? "" : "s"} for the Team tab.`);
   };
   const addDesignation = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("designations").push({ name: clean }); };
   const renameDesignation = async (id, oldName, newName) => {
@@ -3457,6 +3522,7 @@ function MainApp({ user }) {
     setProfileBusy(true);
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "draft" });
     if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
+    if (fields.photo !== undefined && fields.photo !== me.photo) await db.ref("staff/" + user.uid + "/photo").set(fields.photo || null);
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     setProfileBusy(false);
     flash("Draft saved.");
@@ -3467,6 +3533,7 @@ function MainApp({ user }) {
       .concat(diffFields(mySensitive || {}, sensFields, SENSITIVE_FIELDS, SENSITIVE_LABELS));
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "submitted", submittedAt: new Date().toISOString() });
     if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
+    if (fields.photo !== undefined && fields.photo !== me.photo) await db.ref("staff/" + user.uid + "/photo").set(fields.photo || null);
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     if (changes.length) await db.ref("profileHistory/" + user.uid).push({ timestamp: new Date().toISOString(), changedBy: "self", changes });
     setProfileBusy(false);
@@ -3491,6 +3558,8 @@ function MainApp({ user }) {
     await db.ref("staffProfile/" + uid).update({ ...fields, lastEditedBy: changerName, lastEditedAt: new Date().toISOString() });
     const currentName = staffMap[uid] && staffMap[uid].name;
     if (fields.name && fields.name.trim() && fields.name.trim() !== currentName) await db.ref("staff/" + uid + "/name").set(fields.name.trim());
+    if (fields.department !== undefined && fields.department !== (staffMap[uid] && staffMap[uid].department)) await db.ref("staff/" + uid + "/department").set(fields.department || null);
+    if (fields.photo !== undefined && fields.photo !== (staffMap[uid] && staffMap[uid].photo)) await db.ref("staff/" + uid + "/photo").set(fields.photo || null);
     if (changes.length) await db.ref("profileHistory/" + uid).push({ timestamp: new Date().toISOString(), changedBy: changerName, changes });
     flash("Profile updated.");
   };
@@ -3674,10 +3743,10 @@ function MainApp({ user }) {
     : [{ id: "add", label: "Add Expense" }, { id: "mine", label: "My Expenses" }, { id: "analysis", label: "My Analysis" }, { id: "ledger", label: "My Ledger" }];
 
   const attendanceTabs = isSuperAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }, { id: "attendanceSettings", label: "Locations" }]
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "directory", label: "Team" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }, { id: "attendanceSettings", label: "Locations" }]
     : isAdmin
-    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }]
-    : [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }];
+    ? [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "directory", label: "Team" }, { id: "team", label: "Team Attendance" }, { id: "teamLeave", label: "Team Leave" }, { id: "attendanceAnalysis", label: "Analysis" }]
+    : [{ id: "attendance", label: "My Attendance" }, { id: "leave", label: "Leave" }, { id: "directory", label: "Team" }];
 
   const profileTabs = isAdmin
     ? [{ id: "myProfile", label: "My Profile" }, { id: "staffProfiles", label: "Staff Profiles" }]
@@ -3781,6 +3850,9 @@ function MainApp({ user }) {
         {section === "attendance" && tab === "leave" && (
           <LeaveTab me={me} myLeaveRequests={myLeaveRequests} dateFormat={dateFormat} onSubmit={submitLeaveRequest} onWithdraw={withdrawLeaveRequest} busy={leaveBusy} />
         )}
+        {section === "attendance" && tab === "directory" && (
+          <TeamAvailability allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} />
+        )}
         {section === "attendance" && tab === "team" && isAdmin && (
           <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
         )}
@@ -3815,7 +3887,7 @@ function MainApp({ user }) {
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetLeaveAllotment={setLeaveAllotment}
             onSendResetLink={sendResetLink} onFixEmail={setStaffEmail}
-            onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment}
+            onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment} onSyncDepartments={syncAllDepartments}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
         )}
