@@ -2035,10 +2035,100 @@ function LateRemarkBox({ remark, onSave }) {
   );
 }
 
+// ---------- Reusable month-calendar for a single staff's attendance. Days with
+// no record are shown as Week Off (if the location's weekly-off covers that
+// weekday) or Absent, matching the same rule used elsewhere. Future days are
+// left blank. Tapping a day shows its check-in/out time and any late remark.
+function MonthCalendar({ records, weeklyOff, dateFormat }) {
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + monthOffset);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayKey = localDateKey();
+
+  const recByDate = {};
+  (records || []).forEach((r) => { recByDate[r.date] = r; });
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+
+  const dow = (dateKey) => new Date(dateKey + "T00:00:00").getDay();
+  const statusFor = (dateKey) => {
+    if (recByDate[dateKey]) return recByDate[dateKey].status;
+    if (dateKey > todayKey) return null;
+    if (weeklyOff && weeklyOff.includes(dow(dateKey))) return "week_off";
+    return "absent";
+  };
+
+  const monthLabel = base.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const selRec = selectedDay ? recByDate[selectedDay] : null;
+  const selStatus = selectedDay ? statusFor(selectedDay) : null;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <button onClick={() => { setMonthOffset((m) => m - 1); setSelectedDay(null); }} style={{ ...ghostBtn, padding: "5px 10px" }}>←</button>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{monthLabel}</div>
+        <button onClick={() => { setMonthOffset((m) => m + 1); setSelectedDay(null); }} disabled={monthOffset >= 0}
+          style={{ ...ghostBtn, padding: "5px 10px", opacity: monthOffset >= 0 ? 0.35 : 1, cursor: monthOffset >= 0 ? "not-allowed" : "pointer" }}>→</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}>
+        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span key={i}>{d}</span>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        {cells.map((dateKey, i) => {
+          if (!dateKey) return <div key={i} />;
+          const status = statusFor(dateKey);
+          const meta = status ? ATT_STATUS_META[status] : null;
+          const dayNum = Number(dateKey.slice(8, 10));
+          const isToday = dateKey === todayKey;
+          return (
+            <button key={i} onClick={() => setSelectedDay(dateKey === selectedDay ? null : dateKey)}
+              style={{ aspectRatio: "1", borderRadius: 8, border: isToday ? "2px solid var(--ink)" : selectedDay === dateKey ? "1.5px solid var(--brand-yellow)" : "1px solid var(--line)",
+                background: "var(--card)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+                cursor: "pointer", padding: 0 }}>
+              <span style={{ fontSize: 11.5, color: "var(--ink)" }}>{dayNum}</span>
+              {meta && <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, fontSize: 10.5, color: "var(--ink-soft)" }}>
+        {Object.entries(ATT_STATUS_META).map(([k, v]) => (
+          <span key={k}><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: v.color, marginRight: 3 }} />{v.label}</span>
+        ))}
+      </div>
+      {selectedDay && (
+        <div style={{ marginTop: 10, padding: 10, background: "var(--paper)", borderRadius: 8, fontSize: 12.5 }}>
+          <div style={{ fontWeight: 600 }}>{fmtDate(selectedDay, dateFormat)}</div>
+          {selRec ? (
+            <>
+              <div style={{ color: "var(--ink-soft)", marginTop: 2 }}>
+                {selRec.checkInTime ? fmtTimeLabel(selRec.checkInTime) : "—"}{selRec.checkOutTime ? " – " + fmtTimeLabel(selRec.checkOutTime) : ""}
+              </div>
+              {selRec.lateRemark && <div style={{ fontStyle: "italic", color: "var(--ink-soft)", marginTop: 4 }}>"{selRec.lateRemark}"</div>}
+            </>
+          ) : (
+            <div style={{ color: "var(--ink-soft)", marginTop: 2 }}>{selStatus === "week_off" ? "Week off" : selStatus === "absent" ? "No record" : "—"}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, onSaveRemark, attBusy, attError, dateFormat }) {
   const [note, setNote] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [halfDayToggle, setHalfDayToggle] = useState(false);
+  const [historyView, setHistoryView] = useState("list");
   const dateKey = localDateKey();
   const today = myAttendance.find((a) => a.date === dateKey);
 
@@ -2109,28 +2199,38 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
       </Card>
 
       <Card style={{ maxWidth: 480 }}>
-        <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent history</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {myAttendance.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No attendance recorded yet.</div>}
-          {myAttendance.slice(0, 14).map((a) => (
-            <div key={a.date} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtDate(a.date, dateFormat)}</div>
-                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
-                  {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
-                </div>
-                {(a.geoLat != null || a.checkOutGeoLat != null) && (
-                  <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
-                    <MapLink lat={a.geoLat} lng={a.geoLng} label="Check-in location" />
-                    <MapLink lat={a.checkOutGeoLat} lng={a.checkOutGeoLng} label="Check-out location" />
-                  </div>
-                )}
-                {a.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 3 }}>"{a.lateRemark}"</div>}
-              </div>
-              <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
-            </div>
-          ))}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <div style={{ fontFamily: "'Lora', serif", fontSize: 15, fontWeight: 600 }}>{historyView === "calendar" ? "Calendar" : "Recent history"}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setHistoryView("list")} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11.5, background: historyView === "list" ? "var(--ink)" : "var(--card)", color: historyView === "list" ? "var(--paper)" : "var(--ink)" }}>List</button>
+            <button onClick={() => setHistoryView("calendar")} style={{ ...ghostBtn, padding: "5px 10px", fontSize: 11.5, background: historyView === "calendar" ? "var(--ink)" : "var(--card)", color: historyView === "calendar" ? "var(--paper)" : "var(--ink)" }}>Calendar</button>
+          </div>
         </div>
+        {historyView === "calendar" ? (
+          <MonthCalendar records={myAttendance} weeklyOff={location && location.weeklyOff} dateFormat={dateFormat} />
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {myAttendance.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>No attendance recorded yet.</div>}
+            {myAttendance.slice(0, 14).map((a) => (
+              <div key={a.date} style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtDate(a.date, dateFormat)}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>
+                    {a.checkInTime ? `${fmtTimeLabel(a.checkInTime)}${a.checkOutTime ? " – " + fmtTimeLabel(a.checkOutTime) : ""}` : "No check-in time"}
+                  </div>
+                  {(a.geoLat != null || a.checkOutGeoLat != null) && (
+                    <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+                      <MapLink lat={a.geoLat} lng={a.geoLng} label="Check-in location" />
+                      <MapLink lat={a.checkOutGeoLat} lng={a.checkOutGeoLng} label="Check-out location" />
+                    </div>
+                  )}
+                  {a.lateRemark && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 3 }}>"{a.lateRemark}"</div>}
+                </div>
+                <StatusBadge status={a.status} metaMap={ATT_STATUS_META} />
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -2406,7 +2506,7 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
         <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>To</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[["table", "Table"], ["staff", "By Staff"], ["status", "By Status"], ["location", "By Location"], ["trend", "Monthly Trend"]].map(([id, label]) => (
+          {[["table", "Table"], ["calendar", "Calendar"], ["staff", "By Staff"], ["status", "By Status"], ["location", "By Location"], ["trend", "Monthly Trend"]].map(([id, label]) => (
             <button key={id} onClick={() => setView(id)} style={{ ...ghostBtn, background: view === id ? "var(--ink)" : "var(--card)", color: view === id ? "var(--paper)" : "var(--ink)" }}>{label}</button>
           ))}
           <button onClick={exportCSV} style={ghostBtn}>Export CSV</button>
@@ -2439,6 +2539,16 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
             );
           })}
         </div>
+      )}
+      {view === "calendar" && (
+        staffFilter === "All" ? (
+          <Card style={{ color: "var(--ink-soft)" }}>Pick a specific staff above to see their calendar.</Card>
+        ) : (() => {
+          const uid = Object.keys(staffMap).find((k) => staffMap[k].name === staffFilter);
+          const loc = uid && staffMap[uid].locationId ? locsById[staffMap[uid].locationId] : null;
+          const records = allAttendance.filter((a) => a.staffUid === uid);
+          return <Card><MonthCalendar records={records} weeklyOff={loc && loc.weeklyOff} dateFormat={dateFormat} /></Card>;
+        })()
       )}
       {view === "staff" && <Card><SimpleBarChart data={byStaff} format={fmtCount} /></Card>}
       {view === "status" && <Card><SimpleBarChart data={byStatus} format={fmtCount} /></Card>}
