@@ -2039,63 +2039,115 @@ function LateRemarkBox({ remark, onSave }) {
 // no record are shown as Week Off (if the location's weekly-off covers that
 // weekday) or Absent, matching the same rule used elsewhere. Future days are
 // left blank. Tapping a day shows its check-in/out time and any late remark.
+// Tint (light background) + solid text/border pair for each status, so calendar
+// day cells can be fully colored while staying readable. Keys match ATT_STATUS_META.
+const ATT_CELL_TINT = {
+  present: { bg: "rgba(42,106,90,0.16)", fg: "#2A6A5A" },
+  late: { bg: "rgba(181,118,43,0.18)", fg: "#B5762B" },
+  half_day: { bg: "rgba(47,59,82,0.14)", fg: "#2F3B52" },
+  absent: { bg: "rgba(140,59,59,0.16)", fg: "#8C3B3B" },
+  awaiting_checkin: { bg: "rgba(181,118,43,0.18)", fg: "#B5762B" },
+  on_leave: { bg: "rgba(122,111,176,0.18)", fg: "#7A6FB0" },
+  week_off: { bg: "rgba(136,135,128,0.14)", fg: "#6B6A64" },
+};
+
+const BS_MONTH_NAMES = ["Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Aswin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
+
 function MonthCalendar({ records, weeklyOff, dateFormat }) {
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(null);
-
-  const base = new Date();
-  base.setDate(1);
-  base.setMonth(base.getMonth() + monthOffset);
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const firstDow = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const isBS = dateFormat === "BS";
+  const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
   const todayKey = localDateKey();
 
   const recByDate = {};
   (records || []).forEach((r) => { recByDate[r.date] = r; });
+  const localKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-  const cells = [];
-  for (let i = 0; i < firstDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  // cells: [{ dayLabel, adKey } | null, ...] — adKey is always the real AD
+  // "YYYY-MM-DD" that attendance is stored under; dayLabel is what's shown
+  // in the box (AD day number, or BS day number when the BS toggle is on).
+  let cells = [];
+  let monthLabel = "";
+  let atLatestMonth = monthOffset >= 0;
+  let bsFailed = false;
 
-  const dow = (dateKey) => new Date(dateKey + "T00:00:00").getDay();
-  const statusFor = (dateKey) => {
-    if (recByDate[dateKey]) return recByDate[dateKey].status;
-    if (dateKey > todayKey) return null;
-    if (weeklyOff && weeklyOff.includes(dow(dateKey))) return "week_off";
+  if (isBS && NDClass) {
+    try {
+      const todayNd = new NDClass(new Date());
+      let bsY = todayNd.getYear(), bsM = todayNd.getMonth() + monthOffset;
+      while (bsM < 0) { bsM += 12; bsY -= 1; }
+      while (bsM > 11) { bsM -= 12; bsY += 1; }
+      atLatestMonth = bsY === todayNd.getYear() && bsM === todayNd.getMonth();
+      monthLabel = `${BS_MONTH_NAMES[bsM]} ${bsY}`;
+      const firstAd = new NDClass(bsY, bsM, 1).toJsDate();
+      const cursor = new Date(firstAd);
+      const firstDow = cursor.getDay();
+      for (let i = 0; i < firstDow; i++) cells.push(null);
+      let guard = 0;
+      while (guard++ < 35) {
+        const nd = new NDClass(cursor);
+        if (nd.getYear() !== bsY || nd.getMonth() !== bsM) break;
+        cells.push({ dayLabel: nd.getDate(), adKey: localKeyOf(cursor), dow: cursor.getDay() });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    } catch (err) {
+      bsFailed = true;
+      cells = [];
+    }
+  }
+  if (!isBS || !NDClass || bsFailed) {
+    const base = new Date();
+    base.setDate(1);
+    base.setMonth(base.getMonth() + monthOffset);
+    const year = base.getFullYear();
+    const month = base.getMonth();
+    const firstDow = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    monthLabel = base.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    for (let i = 0; i < firstDow; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const adKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      cells.push({ dayLabel: d, adKey, dow: new Date(adKey + "T00:00:00").getDay() });
+    }
+  }
+
+  const statusFor = (adKey, dow) => {
+    if (recByDate[adKey]) return recByDate[adKey].status;
+    if (adKey > todayKey) return null;
+    if (weeklyOff && weeklyOff.includes(dow)) return "week_off";
     return "absent";
   };
 
-  const monthLabel = base.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const selRec = selectedDay ? recByDate[selectedDay] : null;
-  const selStatus = selectedDay ? statusFor(selectedDay) : null;
+  const selCell = selectedDay ? cells.find((c) => c && c.adKey === selectedDay) : null;
+  const selStatus = selCell ? statusFor(selCell.adKey, selCell.dow) : null;
 
   return (
     <div>
+      {isBS && (!NDClass || bsFailed) && <div style={{ fontSize: 11.5, color: "var(--rejected)", marginBottom: 8 }}>Nepali calendar isn't available for this month — showing AD instead.</div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <button onClick={() => { setMonthOffset((m) => m - 1); setSelectedDay(null); }} style={{ ...ghostBtn, padding: "5px 10px" }}>←</button>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{monthLabel}</div>
-        <button onClick={() => { setMonthOffset((m) => m + 1); setSelectedDay(null); }} disabled={monthOffset >= 0}
-          style={{ ...ghostBtn, padding: "5px 10px", opacity: monthOffset >= 0 ? 0.35 : 1, cursor: monthOffset >= 0 ? "not-allowed" : "pointer" }}>→</button>
+        <button onClick={() => { setMonthOffset((m) => m + 1); setSelectedDay(null); }} disabled={atLatestMonth}
+          style={{ ...ghostBtn, padding: "5px 10px", opacity: atLatestMonth ? 0.35 : 1, cursor: atLatestMonth ? "not-allowed" : "pointer" }}>→</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}>
         {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span key={i}>{d}</span>)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-        {cells.map((dateKey, i) => {
-          if (!dateKey) return <div key={i} />;
-          const status = statusFor(dateKey);
-          const meta = status ? ATT_STATUS_META[status] : null;
-          const dayNum = Number(dateKey.slice(8, 10));
-          const isToday = dateKey === todayKey;
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={i} />;
+          const status = statusFor(cell.adKey, cell.dow);
+          const tint = status ? ATT_CELL_TINT[status] : null;
+          const isToday = cell.adKey === todayKey;
           return (
-            <button key={i} onClick={() => setSelectedDay(dateKey === selectedDay ? null : dateKey)}
-              style={{ aspectRatio: "1", borderRadius: 8, border: isToday ? "2px solid var(--ink)" : selectedDay === dateKey ? "1.5px solid var(--brand-yellow)" : "1px solid var(--line)",
-                background: "var(--card)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+            <button key={i} onClick={() => setSelectedDay(cell.adKey === selectedDay ? null : cell.adKey)}
+              style={{ aspectRatio: "1", borderRadius: 8, border: isToday ? "2px solid var(--ink)" : selectedDay === cell.adKey ? "1.5px solid var(--brand-yellow)" : "1px solid var(--line)",
+                background: tint ? tint.bg : "var(--card)", color: tint ? tint.fg : "var(--ink)", fontWeight: tint ? 600 : 400,
+                display: "flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer", padding: 0 }}>
-              <span style={{ fontSize: 11.5, color: "var(--ink)" }}>{dayNum}</span>
-              {meta && <span style={{ width: 6, height: 6, borderRadius: "50%", background: meta.color }} />}
+              <span style={{ fontSize: 12.5 }}>{cell.dayLabel}</span>
             </button>
           );
         })}
