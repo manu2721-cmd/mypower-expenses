@@ -2061,6 +2061,34 @@ const ATT_CELL_CODE = {
 };
 
 const BS_MONTH_NAMES = ["Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Aswin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
+const AD_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Finds the AD "YYYY-MM-DD" range a given BS year+month (0-based) spans, by
+// walking day-by-day from its first day until the BS month changes — robust
+// regardless of variable BS month lengths. Returns null if the date library
+// isn't available or the year is outside its supported range.
+function getBsMonthRange(bsYear, bsMonthIdx) {
+  const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
+  if (!NDClass) return null;
+  try {
+    const localKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const cursor = new Date(new NDClass(bsYear, bsMonthIdx, 1).toJsDate());
+    const fromKey = localKeyOf(cursor);
+    let toKey = fromKey;
+    let guard = 0;
+    while (guard++ < 35) {
+      const next = new Date(cursor);
+      next.setDate(next.getDate() + 1);
+      const nd = new NDClass(next);
+      if (nd.getYear() !== bsYear || nd.getMonth() !== bsMonthIdx) break;
+      cursor.setDate(cursor.getDate() + 1);
+      toKey = localKeyOf(cursor);
+    }
+    return { from: fromKey, to: toKey };
+  } catch (e) {
+    return null;
+  }
+}
 
 function MonthCalendar({ records, weeklyOff, dateFormat }) {
   const [monthOffset, setMonthOffset] = useState(0);
@@ -2467,6 +2495,30 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
   const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
   const locsById = useMemo(() => Object.fromEntries(locations.map((l) => [l.id, l])), [locations]);
 
+  // Quick month-badge filters — Nepali months when the header's AD/BS toggle
+  // is set to BS, English months when it's AD. Picking one sets From/To to
+  // that month's boundaries in one tap instead of two date pickers.
+  const monthChips = useMemo(() => {
+    if (dateFormat === "BS") {
+      const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
+      if (!NDClass) return [];
+      try {
+        const bsYear = new NDClass(new Date()).getYear();
+        return BS_MONTH_NAMES.map((name, idx) => {
+          const range = getBsMonthRange(bsYear, idx);
+          return range ? { label: name, from: range.from, to: range.to } : null;
+        }).filter(Boolean);
+      } catch (e) { return []; }
+    }
+    const adYear = new Date().getFullYear();
+    return AD_MONTH_NAMES.map((name, idx) => {
+      const from = `${adYear}-${String(idx + 1).padStart(2, "0")}-01`;
+      const lastDay = new Date(adYear, idx + 1, 0).getDate();
+      const to = `${adYear}-${String(idx + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+      return { label: name, from, to };
+    });
+  }, [dateFormat]);
+
   // Absent staff never get a database record for that day, so to show them here
   // (matching how Team Attendance already treats "no record" as Absent), we fill in
   // one synthetic Absent entry per active staff for every day in the selected range
@@ -2581,6 +2633,18 @@ function AttendanceAnalysis({ allAttendance, staffMap, locations, dateFormat }) 
           <button onClick={exportCSV} style={ghostBtn}>Export CSV</button>
         </div>
       </div>
+
+      {monthChips.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {monthChips.map((m) => {
+            const active = fromDate === m.from && toDate === m.to;
+            return (
+              <button key={m.label} onClick={() => { setFromDate(m.from); setToDate(m.to); }}
+                style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5, background: active ? "var(--ink)" : "var(--card)", color: active ? "var(--paper)" : "var(--ink)" }}>{m.label}</button>
+            );
+          })}
+        </div>
+      )}
 
       {view === "table" && (
         <div style={{ display: "grid", gap: 2 }}>
