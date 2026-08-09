@@ -2050,6 +2050,15 @@ const ATT_CELL_TINT = {
   on_leave: { bg: "rgba(122,111,176,0.18)", fg: "#7A6FB0" },
   week_off: { bg: "rgba(136,135,128,0.14)", fg: "#6B6A64" },
 };
+const ATT_CELL_CODE = {
+  present: "Pres",
+  late: "Late",
+  half_day: "HD",
+  absent: "Abs",
+  awaiting_checkin: "Await",
+  on_leave: "Leave",
+  week_off: "WO",
+};
 
 const BS_MONTH_NAMES = ["Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Aswin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
 
@@ -2141,13 +2150,21 @@ function MonthCalendar({ records, weeklyOff, dateFormat }) {
           const status = statusFor(cell.adKey, cell.dow);
           const tint = status ? ATT_CELL_TINT[status] : null;
           const isToday = cell.adKey === todayKey;
+          const rec = recByDate[cell.adKey];
+          const noCheckout = ["present", "late"].includes(status) && rec && rec.checkInTime && !rec.checkOutTime;
+          const code = status ? ATT_CELL_CODE[status] : "";
           return (
             <button key={i} onClick={() => setSelectedDay(cell.adKey === selectedDay ? null : cell.adKey)}
               style={{ aspectRatio: "1", borderRadius: 8, border: isToday ? "2px solid var(--ink)" : selectedDay === cell.adKey ? "1.5px solid var(--brand-yellow)" : "1px solid var(--line)",
                 background: tint ? tint.bg : "var(--card)", color: tint ? tint.fg : "var(--ink)", fontWeight: tint ? 600 : 400,
-                display: "flex", alignItems: "center", justifyContent: "center",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                 cursor: "pointer", padding: 0 }}>
               <span style={{ fontSize: 12.5 }}>{cell.dayLabel}</span>
+              {code && (
+                <span style={{ fontSize: 8.5, fontWeight: 500, whiteSpace: "nowrap" }}>
+                  <span style={{ opacity: 0.85 }}>{code}</span>{noCheckout && <span style={{ color: "var(--no-checkout)" }}>·NC</span>}
+                </span>
+              )}
             </button>
           );
         })}
