@@ -22,7 +22,7 @@
   @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
   :root {
     --paper: #FAF6EC; --paper-dark: #F1EAD9; --card: #FFFDF6; --ink: #1A1A1A; --ink-soft: #6B6554;
-    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52; --on-leave: #7A6FB0; --no-checkout: #C1440E;
+    --brand-yellow: #F5C300; --line: #DDD3BA; --approved: #2A6A5A; --pending: #B5762B; --rejected: #8C3B3B; --paid: #2F3B52; --on-leave: #7A6FB0; --no-checkout: #C1440E; --wfh: #3E7CB1;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--paper-dark); }
@@ -69,6 +69,7 @@ const ATT_STATUS_META = {
   awaiting_checkin: { color: "var(--pending)", label: "Awaiting approval" },
   on_leave: { color: "var(--on-leave)", label: "On Leave" },
   week_off: { color: "var(--ink-soft)", label: "Week Off" },
+  wfh: { color: "var(--wfh)", label: "Work From Home" },
 };
 const LEAVE_TYPES = [
   { id: "sick", label: "Sick" },
@@ -115,11 +116,15 @@ function fmtTimeLabel(iso) {
   h = h % 12; if (h === 0) h = 12;
   return `${h}:${m} ${ap}`;
 }
-function computeAttStatus(timeStr, location) {
-  if (!location || !location.shiftStart) return "present";
+function computeAttStatus(timeStr, location, flexEnd) {
   const [inH, inM] = timeStr.split(":").map(Number);
-  const [shH, shM] = location.shiftStart.split(":").map(Number);
   const inMinutes = inH * 60 + inM;
+  if (flexEnd) {
+    const [fH, fM] = flexEnd.split(":").map(Number);
+    return inMinutes > (fH * 60 + fM) ? "late" : "present";
+  }
+  if (!location || !location.shiftStart) return "present";
+  const [shH, shM] = location.shiftStart.split(":").map(Number);
   const cutoff = shH * 60 + shM + (Number(location.graceMinutes) || 0);
   return inMinutes > cutoff ? "late" : "present";
 }
@@ -1523,7 +1528,7 @@ function MissingEmailFix({ uid, onSave }) {
   );
 }
 
-function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onFixEmail }) {
+function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onFixEmail, onSetFlexTime, onToggleWfh }) {
   const [copied, setCopied] = useState("");
   const copy = (text, label) => {
     if (!navigator.clipboard) return;
@@ -1579,6 +1584,19 @@ function StaffRow({ s, myUid, categories, locations, onSetRole, onToggleCategory
           <input type="checkbox" checked={!!s.remoteCheckInAllowed} onChange={(e) => onToggleRemote(s.uid, e.target.checked)} />
           Remote check-in allowed
         </label>
+        <label style={{ fontSize: 11.5, color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 4 }}>
+          <input type="checkbox" checked={!!s.wfhAllowed} onChange={(e) => onToggleWfh(s.uid, e.target.checked)} />
+          Work from home allowed
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Flexible time slot (leave blank for normal shift):</span>
+        <input type="time" value={s.flexStart || ""} onChange={(e) => onSetFlexTime(s.uid, "flexStart", e.target.value)} style={{ ...smallSelect, padding: "4px 8px" }} />
+        <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>to</span>
+        <input type="time" value={s.flexEnd || ""} onChange={(e) => onSetFlexTime(s.uid, "flexEnd", e.target.value)} style={{ ...smallSelect, padding: "4px 8px" }} />
+        {(s.flexStart || s.flexEnd) && (
+          <button onClick={() => { onSetFlexTime(s.uid, "flexStart", ""); onSetFlexTime(s.uid, "flexEnd", ""); }} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 11 }}>Clear</button>
+        )}
       </div>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
         <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Leave allotted / year:</span>
@@ -1758,7 +1776,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onSyncDepartments, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetFlexTime, onToggleWfh, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onSyncDepartments, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1847,14 +1865,14 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
         <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Active ({activeStaff.length})</div>
         <div style={{ display: "grid", marginBottom: inactiveStaff.length > 0 ? 14 : 0 }}>
           {activeStaff.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13, padding: "6px 0" }}>No active staff match.</div>}
-          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} onFixEmail={onFixEmail} />)}
+          {activeStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} onFixEmail={onFixEmail} onSetFlexTime={onSetFlexTime} onToggleWfh={onToggleWfh} />)}
         </div>
         {inactiveStaff.length > 0 && (
           <div>
             <button onClick={() => setShowInactive((v) => !v)} style={{ ...ghostBtn, fontSize: 11.5, marginBottom: 6 }}>
               {showInactive ? "▾" : "▸"} Inactive ({inactiveStaff.length})
             </button>
-            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} onFixEmail={onFixEmail} />)}</div>}
+            {showInactive && <div style={{ display: "grid" }}>{inactiveStaff.map((s) => <StaffRow key={s.uid} s={s} myUid={myUid} categories={categories} locations={locations} onSetRole={onSetRole} onToggleCategoryAccess={onToggleCategoryAccess} onToggleActive={onToggleActive} onSetLocation={onSetLocation} onToggleRemote={onToggleRemote} onSetLeaveAllotment={onSetLeaveAllotment} onSendResetLink={onSendResetLink} onFixEmail={onFixEmail} onSetFlexTime={onSetFlexTime} onToggleWfh={onToggleWfh} />)}</div>}
           </div>
         )}
       </CollapsibleCard>
@@ -2049,6 +2067,7 @@ const ATT_CELL_TINT = {
   awaiting_checkin: { bg: "rgba(181,118,43,0.18)", fg: "#B5762B" },
   on_leave: { bg: "rgba(122,111,176,0.18)", fg: "#7A6FB0" },
   week_off: { bg: "rgba(136,135,128,0.14)", fg: "#6B6A64" },
+  wfh: { bg: "rgba(62,124,177,0.16)", fg: "#3E7CB1" },
 };
 const ATT_CELL_CODE = {
   present: "Pres",
@@ -2058,6 +2077,7 @@ const ATT_CELL_CODE = {
   awaiting_checkin: "Await",
   on_leave: "Leave",
   week_off: "WO",
+  wfh: "WFH",
 };
 
 const BS_MONTH_NAMES = ["Baisakh", "Jestha", "Asar", "Shrawan", "Bhadra", "Aswin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
@@ -2221,9 +2241,11 @@ function MonthCalendar({ records, weeklyOff, dateFormat }) {
   );
 }
 
-function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, onSaveRemark, attBusy, attError, dateFormat }) {
+function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn, onCancelRequest, onCheckOut, onSaveRemark, onMarkWfh, attBusy, attError, dateFormat }) {
   const [note, setNote] = useState("");
   const [requesting, setRequesting] = useState(false);
+  const [markingWfh, setMarkingWfh] = useState(false);
+  const [wfhNote, setWfhNote] = useState("");
   const [halfDayToggle, setHalfDayToggle] = useState(false);
   const [historyView, setHistoryView] = useState("list");
   const dateKey = localDateKey();
@@ -2238,13 +2260,22 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
         {!today && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Not checked in yet</div>
-            {!requesting ? (
+            {!requesting && !markingWfh ? (
               <div>
                 <button onClick={onCheckIn} disabled={attBusy}
                   style={{ width: "100%", padding: 13, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 14, cursor: attBusy ? "default" : "pointer" }}>
                   {attBusy ? "Getting your location…" : "Check in"}
                 </button>
+                {me.wfhAllowed && <button onClick={() => setMarkingWfh(true)} style={{ ...ghostBtn, marginTop: 8, width: "100%" }}>Mark Work From Home today</button>}
                 <button onClick={() => setRequesting(true)} style={{ ...ghostBtn, marginTop: 8, width: "100%", fontSize: 12 }}>Trouble checking in? Request check-in instead</button>
+              </div>
+            ) : markingWfh ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                <input value={wfhNote} onChange={(e) => setWfhNote(e.target.value)} placeholder="Reason (optional)" style={inputStyle} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { onMarkWfh(wfhNote); setMarkingWfh(false); setWfhNote(""); }} disabled={attBusy} style={{ ...ghostBtn, flex: 1 }}>{attBusy ? "Saving…" : "Confirm WFH"}</button>
+                  <button onClick={() => setMarkingWfh(false)} style={ghostBtn}>Cancel</button>
+                </div>
               </div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
@@ -2268,7 +2299,18 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
           </div>
         )}
 
-        {today && today.checkInTime && !today.checkOutTime && (
+        {today && today.status === "wfh" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Marked Work From Home</div>
+              <StatusBadge status="wfh" metaMap={ATT_STATUS_META} />
+            </div>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>Since {fmtTimeLabel(today.checkInTime)} — no checkout needed for WFH days.</div>
+            {today.note && <div style={{ fontSize: 12, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 4 }}>"{today.note}"</div>}
+          </div>
+        )}
+
+        {today && today.status !== "wfh" && today.checkInTime && !today.checkOutTime && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Checked in at {fmtTimeLabel(today.checkInTime)}</div>
@@ -3719,6 +3761,8 @@ function MainApp({ user }) {
   const removeRouter = (id) => db.ref("routers/" + id).remove();
   const setStaffLocation = (uid, locationId) => db.ref(`staff/${uid}/locationId`).set(locationId || null);
   const setRemoteAllowed = (uid, val) => db.ref(`staff/${uid}/remoteCheckInAllowed`).set(val);
+  const setFlexTime = (uid, field, val) => db.ref(`staff/${uid}/${field}`).set(val || null);
+  const toggleWfh = (uid, val) => db.ref(`staff/${uid}/wfhAllowed`).set(val);
 
   const addDepartment = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("departments").push({ name: clean }); };
   const renameDepartment = async (id, oldName, newName) => {
@@ -3827,7 +3871,7 @@ function MainApp({ user }) {
       const now = new Date();
       const dateKey = localDateKey(now);
       const loc = me.locationId ? locationsMap[me.locationId] : null;
-      const status = computeAttStatus(localTimeStr(now), loc);
+      const status = computeAttStatus(localTimeStr(now), loc, me.flexEnd);
       await db.ref(`attendance/${user.uid}/${dateKey}`).set({
         checkInTime: now.toISOString(), checkOutTime: null, method: "gps_remote",
         geoLat: geo.lat, geoLng: geo.lng, locationId: me.locationId || null, status, checkedInBy: "self",
@@ -3835,6 +3879,22 @@ function MainApp({ user }) {
       flash("Checked in.");
     } catch (err) {
       setAttError(err.message || "Couldn't check in.");
+    }
+    setAttBusy(false);
+  };
+
+  const markWfh = async (note) => {
+    setAttBusy(true); setAttError("");
+    try {
+      const now = new Date();
+      const dateKey = localDateKey(now);
+      await db.ref(`attendance/${user.uid}/${dateKey}`).set({
+        checkInTime: now.toISOString(), checkOutTime: null, method: "wfh",
+        locationId: me.locationId || null, status: "wfh", checkedInBy: "self", note: (note || "").trim(),
+      });
+      flash("Marked Work From Home for today.");
+    } catch (err) {
+      setAttError(err.message || "Couldn't mark WFH.");
     }
     setAttBusy(false);
   };
@@ -3887,7 +3947,7 @@ function MainApp({ user }) {
     const loc = staffRec && staffRec.locationId ? locationsMap[staffRec.locationId] : null;
     const rec = allAttendance.find((a) => a.staffUid === staffUid && a.date === dateKey);
     const checkTime = rec && rec.requestedAt ? new Date(rec.requestedAt) : new Date();
-    const status = computeAttStatus(localTimeStr(checkTime), loc);
+    const status = computeAttStatus(localTimeStr(checkTime), loc, staffRec && staffRec.flexEnd);
     await db.ref(`attendance/${staffUid}/${dateKey}`).update({ checkInTime: checkTime.toISOString(), status, checkedInBy: me.name });
     flash("Check-in approved.");
   };
@@ -4086,7 +4146,7 @@ function MainApp({ user }) {
         {section === "attendance" && tab === "attendance" && (
           <AttendanceTab
             me={me} myAttendance={myAttendance} location={me.locationId ? locationsMap[me.locationId] : null}
-            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut} onSaveRemark={saveLateRemark}
+            onCheckIn={checkIn} onRequestCheckIn={requestCheckIn} onCancelRequest={cancelCheckInRequest} onCheckOut={checkOut} onSaveRemark={saveLateRemark} onMarkWfh={markWfh}
             attBusy={attBusy} attError={attError} dateFormat={dateFormat}
           />
         )}
@@ -4128,7 +4188,7 @@ function MainApp({ user }) {
             staffMap={staffMap} allProfiles={allProfiles} myUid={user.uid} categories={sortedCategories} locations={locations}
             departments={departments} designations={designations}
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
-            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetLeaveAllotment={setLeaveAllotment}
+            onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetFlexTime={setFlexTime} onToggleWfh={toggleWfh} onSetLeaveAllotment={setLeaveAllotment}
             onSendResetLink={sendResetLink} onFixEmail={setStaffEmail}
             onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment} onSyncDepartments={syncAllDepartments}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
