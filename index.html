@@ -1776,7 +1776,7 @@ function diffFields(oldObj, newObj, fields, labels) {
   return changes;
 }
 
-function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetFlexTime, onToggleWfh, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onSyncDepartments, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
+function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, departments, designations, onCreateStaff, onSetRole, onToggleCategoryAccess, onToggleActive, onSetLocation, onToggleRemote, onSetFlexTime, onToggleWfh, onSetLeaveAllotment, onSendResetLink, onFixEmail, onAddDepartment, onRenameDepartment, onRemoveDepartment, onSyncDepartments, onSyncExpenseNames, onAddDesignation, onRenameDesignation, onRemoveDesignation }) {
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffPin, setNewStaffPin] = useState("");
@@ -1859,6 +1859,7 @@ function PeopleManage({ staffMap, allProfiles, myUid, categories, locations, dep
 
       <CollapsibleCard storageKey="staffPermissions" title="Staff & permissions"
         subtitle='User ID and internal record ID are shown under each name — tap either to copy. "Send reset link" emails that person a link to set a new PIN themselves. Super Admin sees everything, including Categories/Tags and Locations settings. Admin sees Company Overview but only the categories checked below — useful for keeping things like Salary visible to just a few people. Location and remote check-in control what Attendance expects from each person. Personal profile details now live in their own Profile section, not here. Firebase never reveals a saved PIN to anyone, admin included — if someone forgot theirs, send a reset link, or recreate their login below with a new PIN.'>
+        <button onClick={onSyncExpenseNames} style={{ ...ghostBtn, marginBottom: 10, fontSize: 12 }}>Fix names on old expense vouchers (run if someone's old vouchers show their email instead of their name)</button>
         {staffEntries.length > 6 && (
           <input value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="Search staff…" style={{ ...inputStyle, marginBottom: 10, fontSize: 13 }} />
         )}
@@ -3790,6 +3791,17 @@ function MainApp({ user }) {
     await db.ref().update(updates);
     flash(`Synced ${count} field${count === 1 ? "" : "s"} for the Team tab.`);
   };
+  const syncAllExpenseStaffNames = async () => {
+    const updates = {};
+    let count = 0;
+    allExpenses.forEach((e) => {
+      const currentName = staffMap[e.staffUid] && staffMap[e.staffUid].name;
+      if (currentName && e.staffName !== currentName) { updates[`expenses/${e.staffUid}/${e.id}/staffName`] = currentName; count++; }
+    });
+    if (count === 0) { flash("Already in sync — nothing to do."); return; }
+    await db.ref().update(updates);
+    flash(`Fixed the name on ${count} old expense voucher${count === 1 ? "" : "s"}.`);
+  };
   const addDesignation = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("designations").push({ name: clean }); };
   const renameDesignation = async (id, oldName, newName) => {
     const clean = newName.trim();
@@ -3808,7 +3820,12 @@ function MainApp({ user }) {
   const saveMyProfileDraft = async (fields, sensFields) => {
     setProfileBusy(true);
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "draft" });
-    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
+    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) {
+      const newName = fields.name.trim();
+      await db.ref("staff/" + user.uid + "/name").set(newName);
+      const affectedIds = myExpenses.filter((e) => e.staffName !== newName).map((e) => e.id);
+      if (affectedIds.length) { const updates = {}; affectedIds.forEach((id) => { updates[`expenses/${user.uid}/${id}/staffName`] = newName; }); await db.ref().update(updates); }
+    }
     if (fields.photo !== undefined && fields.photo !== me.photo) await db.ref("staff/" + user.uid + "/photo").set(fields.photo || null);
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     setProfileBusy(false);
@@ -3819,7 +3836,12 @@ function MainApp({ user }) {
     const changes = diffFields(myProfile || {}, fields, PROFILE_FIELDS, PROFILE_LABELS)
       .concat(diffFields(mySensitive || {}, sensFields, SENSITIVE_FIELDS, SENSITIVE_LABELS));
     await db.ref("staffProfile/" + user.uid).update({ ...fields, status: "submitted", submittedAt: new Date().toISOString() });
-    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) await db.ref("staff/" + user.uid + "/name").set(fields.name.trim());
+    if (fields.name && fields.name.trim() && fields.name.trim() !== me.name) {
+      const newName = fields.name.trim();
+      await db.ref("staff/" + user.uid + "/name").set(newName);
+      const affectedIds = myExpenses.filter((e) => e.staffName !== newName).map((e) => e.id);
+      if (affectedIds.length) { const updates = {}; affectedIds.forEach((id) => { updates[`expenses/${user.uid}/${id}/staffName`] = newName; }); await db.ref().update(updates); }
+    }
     if (fields.photo !== undefined && fields.photo !== me.photo) await db.ref("staff/" + user.uid + "/photo").set(fields.photo || null);
     await db.ref("staffSensitive/" + user.uid).update(sensFields);
     if (changes.length) await db.ref("profileHistory/" + user.uid).push({ timestamp: new Date().toISOString(), changedBy: "self", changes });
@@ -3844,7 +3866,12 @@ function MainApp({ user }) {
     const changes = diffFields(allProfiles[uid] || {}, fields, PROFILE_FIELDS, PROFILE_LABELS);
     await db.ref("staffProfile/" + uid).update({ ...fields, lastEditedBy: changerName, lastEditedAt: new Date().toISOString() });
     const currentName = staffMap[uid] && staffMap[uid].name;
-    if (fields.name && fields.name.trim() && fields.name.trim() !== currentName) await db.ref("staff/" + uid + "/name").set(fields.name.trim());
+    if (fields.name && fields.name.trim() && fields.name.trim() !== currentName) {
+      const newName = fields.name.trim();
+      await db.ref("staff/" + uid + "/name").set(newName);
+      const affectedIds = allExpenses.filter((e) => e.staffUid === uid && e.staffName !== newName).map((e) => e.id);
+      if (affectedIds.length) { const updates = {}; affectedIds.forEach((id) => { updates[`expenses/${uid}/${id}/staffName`] = newName; }); await db.ref().update(updates); }
+    }
     if (fields.department !== undefined && fields.department !== (staffMap[uid] && staffMap[uid].department)) await db.ref("staff/" + uid + "/department").set(fields.department || null);
     if (fields.photo !== undefined && fields.photo !== (staffMap[uid] && staffMap[uid].photo)) await db.ref("staff/" + uid + "/photo").set(fields.photo || null);
     if (changes.length) await db.ref("profileHistory/" + uid).push({ timestamp: new Date().toISOString(), changedBy: changerName, changes });
@@ -4190,7 +4217,7 @@ function MainApp({ user }) {
             onCreateStaff={createStaff} onSetRole={setRole} onToggleCategoryAccess={toggleCategoryAccess} onToggleActive={toggleActive}
             onSetLocation={setStaffLocation} onToggleRemote={setRemoteAllowed} onSetFlexTime={setFlexTime} onToggleWfh={toggleWfh} onSetLeaveAllotment={setLeaveAllotment}
             onSendResetLink={sendResetLink} onFixEmail={setStaffEmail}
-            onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment} onSyncDepartments={syncAllDepartments}
+            onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment} onSyncDepartments={syncAllDepartments} onSyncExpenseNames={syncAllExpenseStaffNames}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
         )}
