@@ -1010,6 +1010,26 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
     return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => a.name.localeCompare(b.name));
   }, [filtered]);
 
+  // Nepal fiscal-year month badges (Shrawan → Ashad), shown when the header's
+  // AD/BS toggle is on BS — tapping one sets From/To to that month's bounds.
+  const fiscalYear = useMemo(() => {
+    if (dateFormat !== "BS") return null;
+    const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
+    if (!NDClass) return null;
+    try {
+      const todayNd = new NDClass(new Date());
+      const curBsYear = todayNd.getYear();
+      const fyStart = todayNd.getMonth() >= 3 ? curBsYear : curBsYear - 1; // Shrawan = index 3
+      const order = [3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2]; // Shrawan…Chaitra, then Baisakh…Ashad
+      const chips = order.map((mIdx, i) => {
+        const y = i < 9 ? fyStart : fyStart + 1;
+        const range = getBsMonthRange(y, mIdx);
+        return range ? { label: BS_MONTH_NAMES[mIdx], from: range.from, to: range.to } : null;
+      }).filter(Boolean);
+      return chips.length ? { label: `FY ${fyStart}-${String(fyStart + 1).slice(-2)}`, chips } : null;
+    } catch (e) { return null; }
+  }, [dateFormat]);
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -1043,6 +1063,19 @@ function Overview({ expenses, staffMap, categories, allAdvances, onReview, onMar
           <button onClick={() => onExport(filtered)} style={ghostBtn}>Export CSV</button>
         </div>
       </div>
+
+      {fiscalYear && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fiscalYear.label}:</span>
+          {fiscalYear.chips.map((m) => {
+            const active = fromDate === m.from && toDate === m.to;
+            return (
+              <button key={m.label} onClick={() => { setFromDate(m.from); setToDate(m.to); }}
+                style={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5, background: active ? "var(--ink)" : "var(--card)", color: active ? "var(--paper)" : "var(--ink)" }}>{m.label}</button>
+            );
+          })}
+        </div>
+      )}
 
       {view === "table" && (
         <div style={{ display: "grid", gap: 8 }}>
