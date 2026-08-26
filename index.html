@@ -1382,6 +1382,235 @@ function LedgerTab({ staffMap, allAdvances, allExpenses, dateFormat }) {
   );
 }
 
+// ---------- Salary (Super Admin only): company assignment, salary/TDS/bonus
+// history, and monthly payroll scheduling. Entirely separate, tightly-locked
+// data — not readable by regular Admin or by staff about themselves.
+function StaffSalaryRow({ s, sp, companies, dateFormat, onSetCompany, onAddSalary, onRemoveSalary, onAddBonus, onRemoveBonus }) {
+  const [expanded, setExpanded] = useState(false);
+  const [salaryAmount, setSalaryAmount] = useState("");
+  const [salaryDate, setSalaryDate] = useState(todayStr());
+  const [bonusPercent, setBonusPercent] = useState("");
+  const [bonusDate, setBonusDate] = useState(todayStr());
+
+  const salaryList = Object.entries(sp.basicSalaryHistory || {}).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  const bonusList = Object.entries(sp.bonusHistory || {}).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  const current = salaryList[0];
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--line)", padding: "10px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name}</div>
+          <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{sp.company || "No company assigned"} {current ? `· ${fmtNPR(current.amount)}` : "· No salary set"}</div>
+        </div>
+        <button onClick={() => setExpanded((v) => !v)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5 }}>{expanded ? "Hide" : "Edit"}</button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10, display: "grid", gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 4 }}>Company (for salary purposes)</div>
+            <select value={sp.company || ""} onChange={(e) => onSetCompany(s.uid, e.target.value)} style={{ ...inputStyle, maxWidth: 240 }}>
+              <option value="">Choose…</option>
+              {companies.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 4 }}>Basic salary history</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              <input type="number" min="0" placeholder="Amount" value={salaryAmount} onChange={(e) => setSalaryAmount(e.target.value)} style={{ ...smallSelect, width: 110 }} />
+              <input type="date" value={salaryDate} onChange={(e) => setSalaryDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+              <button onClick={() => { onAddSalary(s.uid, salaryAmount, salaryDate); setSalaryAmount(""); }} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5 }}>Add</button>
+            </div>
+            {salaryList.map((sl) => (
+              <div key={sl.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "5px 9px", marginBottom: 4 }}>
+                <span>{fmtNPR(sl.amount)} from {fmtDate(sl.effectiveFrom, dateFormat)}</span>
+                <button onClick={() => onRemoveSalary(s.uid, sl.id)} style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer" }}>×</button>
+              </div>
+            ))}
+            {salaryList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 12 }}>No salary recorded yet.</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginBottom: 4 }}>Festival bonus % history (% of basic salary)</div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              <input type="number" min="0" placeholder="Percent" value={bonusPercent} onChange={(e) => setBonusPercent(e.target.value)} style={{ ...smallSelect, width: 110 }} />
+              <input type="date" value={bonusDate} onChange={(e) => setBonusDate(e.target.value)} style={{ ...smallSelect, padding: "7px 9px" }} />
+              <button onClick={() => { onAddBonus(s.uid, bonusPercent, bonusDate); setBonusPercent(""); }} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11.5 }}>Add</button>
+            </div>
+            {bonusList.map((bl) => (
+              <div key={bl.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, background: "var(--paper)", borderRadius: 8, padding: "5px 9px", marginBottom: 4 }}>
+                <span>{bl.percent}% from {fmtDate(bl.effectiveFrom, dateFormat)}</span>
+                <button onClick={() => onRemoveBonus(s.uid, bl.id)} style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer" }}>×</button>
+              </div>
+            ))}
+            {bonusList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 12 }}>No bonus % set yet.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SalarySetup({ staffMap, salaryCompanies, salaryProfiles, tdsHistory, dateFormat, onAddCompany, onRenameCompany, onRemoveCompany, onSetStaffCompany, onAddSalary, onRemoveSalary, onAddTds, onRemoveTds, onAddBonus, onRemoveBonus }) {
+  const [newCompany, setNewCompany] = useState("");
+  const [tdsRate, setTdsRate] = useState("");
+  const [tdsDate, setTdsDate] = useState(todayStr());
+
+  const staffList = useMemo(() => Object.entries(staffMap).filter(([, s]) => s.active !== false).map(([uid, s]) => ({ uid, name: s.name })).filter((s) => s.name).sort((a, b) => a.name.localeCompare(b.name)), [staffMap]);
+  const tdsList = Object.entries(tdsHistory || {}).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Companies</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input value={newCompany} onChange={(e) => setNewCompany(e.target.value)} placeholder="Company name" style={{ ...inputStyle, flex: 1 }}
+            onKeyDown={(e) => { if (e.key === "Enter") { onAddCompany(newCompany); setNewCompany(""); } }} />
+          <button onClick={() => { onAddCompany(newCompany); setNewCompany(""); }} style={ghostBtn}>Add</button>
+        </div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {salaryCompanies.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No companies yet — add one above (e.g. KMS, M.N. Traders).</div>}
+          {salaryCompanies.map((c) => (
+            <EditableRow key={c.id} name={c.name} onRename={(n) => onRenameCompany(c.id, c.name, n)} onRemove={() => onRemoveCompany(c.id, c.name)} />
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 4 }}>TDS rate</div>
+        <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>One rate applies to everyone's salary. Add a new entry whenever it changes — the latest one whose date has passed is what's used.</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <input type="number" min="0" step="0.01" value={tdsRate} onChange={(e) => setTdsRate(e.target.value)} placeholder="Rate %" style={{ ...inputStyle, width: 110 }} />
+          <input type="date" value={tdsDate} onChange={(e) => setTdsDate(e.target.value)} style={inputStyle} />
+          <button onClick={() => { onAddTds(tdsRate, tdsDate); setTdsRate(""); }} style={ghostBtn}>Add rate change</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {tdsList.map((t) => (
+            <div key={t.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, background: "var(--paper)", borderRadius: 8, padding: "6px 10px" }}>
+              <span>{t.ratePercent}% from {fmtDate(t.effectiveFrom, dateFormat)}</span>
+              <button onClick={() => onRemoveTds(t.id)} style={{ border: "none", background: "none", color: "var(--rejected)", cursor: "pointer" }}>×</button>
+            </div>
+          ))}
+          {tdsList.length === 0 && <div style={{ color: "var(--ink-soft)", fontSize: 13 }}>No TDS rate set yet.</div>}
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Staff salary setup</div>
+        <div style={{ display: "grid", gap: 2 }}>
+          {staffList.map((s) => (
+            <StaffSalaryRow key={s.uid} s={s} sp={salaryProfiles[s.uid] || {}} companies={salaryCompanies} dateFormat={dateFormat}
+              onSetCompany={onSetStaffCompany} onAddSalary={onAddSalary} onRemoveSalary={onRemoveSalary} onAddBonus={onAddBonus} onRemoveBonus={onRemoveBonus} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdateRow, onRemoveRow }) {
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [editingUid, setEditingUid] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
+  const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
+
+  if (!NDClass) return <Card style={{ color: "var(--rejected)" }}>Nepali calendar isn't available right now — payroll needs it since it's tracked by BS month.</Card>;
+
+  const todayNd = new NDClass(new Date());
+  let bsY = todayNd.getYear(), bsM = todayNd.getMonth() + monthOffset;
+  while (bsM < 0) { bsM += 12; bsY -= 1; }
+  while (bsM > 11) { bsM -= 12; bsY += 1; }
+  const bsMonthKey = `${bsY}-${String(bsM + 1).padStart(2, "0")}`;
+  const monthLabel = `${BS_MONTH_NAMES[bsM]} ${bsY}`;
+
+  const rows = Object.entries(payrollRuns[bsMonthKey] || {}).map(([uid, row]) => ({ uid, ...row }))
+    .sort((a, b) => ((staffMap[a.uid] || {}).name || "").localeCompare((staffMap[b.uid] || {}).name || ""));
+
+  const totals = rows.reduce((acc, r) => { acc.basic += r.basicSalary || 0; acc.tds += r.tdsAmount || 0; acc.net += r.netAmount || 0; return acc; }, { basic: 0, tds: 0, net: 0 });
+
+  const startEdit = (r) => { setEditingUid(r.uid); setEditDraft({ basicSalary: r.basicSalary, tdsRate: r.tdsRate, bonusPercent: r.bonusPercent || 0, expectedDate: r.expectedDate, paidDate: r.paidDate || "" }); };
+  const saveEdit = (uid) => {
+    const basicSalary = Number(editDraft.basicSalary) || 0;
+    const tdsRate = Number(editDraft.tdsRate) || 0;
+    const bonusPercent = Number(editDraft.bonusPercent) || 0;
+    const tdsAmount = Math.round(basicSalary * tdsRate / 100);
+    const bonusAmount = Math.round(basicSalary * bonusPercent / 100);
+    const netAmount = basicSalary - tdsAmount + bonusAmount;
+    onUpdateRow(bsMonthKey, uid, { basicSalary, tdsRate, tdsAmount, bonusPercent, bonusAmount, netAmount, expectedDate: editDraft.expectedDate, paidDate: editDraft.paidDate || null, status: editDraft.paidDate ? "paid" : "scheduled" });
+    setEditingUid(null);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <button onClick={() => setMonthOffset((m) => m - 1)} style={{ ...ghostBtn, padding: "6px 12px" }}>←</button>
+        <div style={{ fontWeight: 600, fontSize: 16 }}>{monthLabel}</div>
+        <button onClick={() => setMonthOffset((m) => m + 1)} style={{ ...ghostBtn, padding: "6px 12px" }}>→</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Total basic" value={totals.basic} />
+        <StatCard label="Total TDS" value={totals.tds} accent="var(--pending)" />
+        <StatCard label="Total net payable" value={totals.net} accent="var(--approved)" />
+      </div>
+
+      <button onClick={() => onGenerate(bsY, bsM)} style={{ ...ghostBtn, background: "var(--brand-yellow)", borderColor: "var(--brand-yellow)", alignSelf: "start" }}>Generate / refresh this month's payroll</button>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {rows.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No payroll rows yet for {monthLabel} — click "Generate" above (only staff with a company and salary set will be included).</Card>}
+        {rows.map((r) => {
+          const s = staffMap[r.uid] || {};
+          const editing = editingUid === r.uid;
+          return (
+            <Card key={r.uid}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{s.name || r.uid}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{r.company}</div>
+                </div>
+                <span style={{ fontSize: 10.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, background: r.status === "paid" ? "var(--approved)" : "var(--pending)", color: "var(--paper)" }}>{r.status === "paid" ? "PAID" : "SCHEDULED"}</span>
+              </div>
+
+              {!editing ? (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, fontSize: 13 }}>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Basic</div>{fmtNPR(r.basicSalary)}</div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS ({r.tdsRate}%)</div>{fmtNPR(r.tdsAmount)}</div>
+                  {r.bonusAmount > 0 && <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus ({r.bonusPercent}%)</div>{fmtNPR(r.bonusAmount)}</div>}
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Net payable</div><b>{fmtNPR(r.netAmount)}</b></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Expected date</div>{fmtDate(r.expectedDate, dateFormat)}</div>
+                  {r.paidDate && <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Paid on</div>{fmtDate(r.paidDate, dateFormat)}</div>}
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Basic</div><input type="number" value={editDraft.basicSalary} onChange={(e) => setEditDraft((d) => ({ ...d, basicSalary: e.target.value }))} style={inputStyle} /></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS %</div><input type="number" value={editDraft.tdsRate} onChange={(e) => setEditDraft((d) => ({ ...d, tdsRate: e.target.value }))} style={inputStyle} /></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus %</div><input type="number" value={editDraft.bonusPercent} onChange={(e) => setEditDraft((d) => ({ ...d, bonusPercent: e.target.value }))} style={inputStyle} /></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Expected date</div><input type="date" value={editDraft.expectedDate} onChange={(e) => setEditDraft((d) => ({ ...d, expectedDate: e.target.value }))} style={inputStyle} /></div>
+                  <div style={{ gridColumn: "span 2" }}><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Paid date (leave blank if not paid yet)</div><input type="date" value={editDraft.paidDate} onChange={(e) => setEditDraft((d) => ({ ...d, paidDate: e.target.value }))} style={inputStyle} /></div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                {editing ? (
+                  <>
+                    <button onClick={() => saveEdit(r.uid)} style={{ ...ghostBtn, borderColor: "var(--approved)", color: "var(--approved)" }}>Save</button>
+                    <button onClick={() => setEditingUid(null)} style={ghostBtn}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => startEdit(r)} style={ghostBtn}>Edit</button>
+                    <button onClick={() => { if (window.confirm("Remove this payroll row?")) onRemoveRow(bsMonthKey, r.uid); }} style={{ ...ghostBtn, borderColor: "var(--rejected)", color: "var(--rejected)" }}>Remove</button>
+                  </>
+                )}
+              </div>
+              {r.lastEditedBy && <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginTop: 6, fontStyle: "italic" }}>Last edited by {r.lastEditedBy}</div>}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Manage (admin only) ----------
 function EditableRow({ name, meta, onRename, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, mergeOptions, onMerge, extra }) {
   const [editing, setEditing] = useState(false);
@@ -2143,6 +2372,14 @@ function getBsMonthRange(bsYear, bsMonthIdx) {
     return null;
   }
 }
+// Given a history list of {..., effectiveFrom}, finds the entry with the latest
+// effectiveFrom that is on or before asOfDate — i.e. "what applied as of this date."
+function getEffectiveEntry(history, asOfDate) {
+  const applicable = (history || []).filter((h) => h.effectiveFrom && h.effectiveFrom <= asOfDate);
+  if (applicable.length === 0) return null;
+  applicable.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  return applicable[0];
+}
 
 function MonthCalendar({ records, weeklyOff, dateFormat }) {
   const [monthOffset, setMonthOffset] = useState(0);
@@ -2786,7 +3023,7 @@ function HomeCard({ label, sub, onClick, accent }) {
   );
 }
 
-function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onSignOut }) {
+function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onEnterSalary, onSignOut }) {
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   const photo = myProfile && myProfile.photo;
@@ -2836,7 +3073,10 @@ function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnt
           <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
         </div>
         {isSuperAdmin && (
-          <button onClick={onEnterPeople} style={{ ...ghostBtn, marginTop: 28 }}>Staff & permissions →</button>
+          <div style={{ display: "flex", gap: 10, marginTop: 28, flexWrap: "wrap", justifyContent: "center" }}>
+            <button onClick={onEnterPeople} style={ghostBtn}>Staff & permissions →</button>
+            <button onClick={onEnterSalary} style={ghostBtn}>Salary →</button>
+          </div>
         )}
       </div>
     </div>
@@ -3288,6 +3528,10 @@ function MainApp({ user }) {
   const [allLeaveRequests, setAllLeaveRequests] = useState([]);
   const [myAdvances, setMyAdvances] = useState([]);
   const [allAdvances, setAllAdvances] = useState([]);
+  const [salaryCompanies, setSalaryCompanies] = useState([]);
+  const [salaryProfiles, setSalaryProfiles] = useState({});
+  const [tdsHistory, setTdsHistory] = useState({});
+  const [payrollRuns, setPayrollRuns] = useState({});
   const [leaveBusy, setLeaveBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
@@ -3474,6 +3718,25 @@ function MainApp({ user }) {
     return () => ref.off("value", cb);
   }, [isAdmin]);
 
+  // Salary module: entirely gated to Super Admin — regular Admin never fetches
+  // or sees this data at all, matching "controlled only by super admin".
+  useEffect(() => {
+    if (!isSuperAdmin) { setSalaryCompanies([]); setSalaryProfiles({}); setTdsHistory({}); setPayrollRuns({}); return; }
+    const r1 = db.ref("salaryConfig/companies");
+    const cb1 = (snap) => setSalaryCompanies(objToArr(snap.val()));
+    r1.on("value", cb1);
+    const r2 = db.ref("salaryProfile");
+    const cb2 = (snap) => setSalaryProfiles(snap.val() || {});
+    r2.on("value", cb2);
+    const r3 = db.ref("salaryTds/history");
+    const cb3 = (snap) => setTdsHistory(snap.val() || {});
+    r3.on("value", cb3);
+    const r4 = db.ref("payrollRuns");
+    const cb4 = (snap) => setPayrollRuns(snap.val() || {});
+    r4.on("value", cb4);
+    return () => { r1.off("value", cb1); r2.off("value", cb2); r3.off("value", cb3); r4.off("value", cb4); };
+  }, [isSuperAdmin]);
+
   useEffect(() => {
     if (!isSuperAdmin) { setStaffSensitiveMap({}); return; }
     const ref = db.ref("staffSensitive");
@@ -3591,6 +3854,75 @@ function MainApp({ user }) {
   const deleteAdvance = async (staffUid, advanceId) => {
     await db.ref("advances/" + staffUid + "/" + advanceId).remove();
     flash("Advance entry deleted.");
+  };
+
+  // ---------- Salary (Super Admin only) ----------
+  const addSalaryCompany = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("salaryConfig/companies").push({ name: clean }); };
+  const renameSalaryCompany = async (id, oldName, newName) => {
+    const clean = newName.trim();
+    if (!clean || clean === oldName) return;
+    const updates = { [`salaryConfig/companies/${id}/name`]: clean };
+    Object.entries(salaryProfiles || {}).forEach(([uid, sp]) => { if (sp.company === oldName) updates[`salaryProfile/${uid}/company`] = clean; });
+    await db.ref().update(updates);
+    flash(`Renamed to "${clean}".`);
+  };
+  const removeSalaryCompany = async (id, name) => {
+    await db.ref(`salaryConfig/companies/${id}`).remove();
+    flash("Company removed.");
+  };
+  const setStaffPayrollCompany = (uid, company) => db.ref(`salaryProfile/${uid}/company`).set(company || null);
+  const addSalaryEntry = (uid, amount, effectiveFrom) => {
+    const amt = Number(amount);
+    if (!amt || amt <= 0 || !effectiveFrom) { flash("Enter a valid amount and date."); return; }
+    db.ref(`salaryProfile/${uid}/basicSalaryHistory`).push({ amount: amt, effectiveFrom, setBy: me.name, setAt: new Date().toISOString() });
+  };
+  const removeSalaryEntry = (uid, id) => db.ref(`salaryProfile/${uid}/basicSalaryHistory/${id}`).remove();
+  const addTdsEntry = (ratePercent, effectiveFrom) => {
+    const r = Number(ratePercent);
+    if (r < 0 || isNaN(r) || !effectiveFrom) { flash("Enter a valid rate and date."); return; }
+    db.ref("salaryTds/history").push({ ratePercent: r, effectiveFrom, setBy: me.name, setAt: new Date().toISOString() });
+  };
+  const removeTdsEntry = (id) => db.ref(`salaryTds/history/${id}`).remove();
+  const addBonusEntry = (uid, percent, effectiveFrom) => {
+    const p = Number(percent);
+    if (p < 0 || isNaN(p) || !effectiveFrom) { flash("Enter a valid percent and date."); return; }
+    db.ref(`salaryProfile/${uid}/bonusHistory`).push({ percent: p, effectiveFrom, setBy: me.name, setAt: new Date().toISOString() });
+  };
+  const removeBonusEntry = (uid, id) => db.ref(`salaryProfile/${uid}/bonusHistory/${id}`).remove();
+
+  const generatePayrollForMonth = async (bsYear, bsMonthIdx) => {
+    const range = getBsMonthRange(bsYear, bsMonthIdx);
+    if (!range) { flash("Couldn't compute that month — Nepali calendar unavailable."); return; }
+    const bsMonthKey = `${bsYear}-${String(bsMonthIdx + 1).padStart(2, "0")}`;
+    const existing = payrollRuns[bsMonthKey] || {};
+    const updates = {};
+    let count = 0;
+    Object.entries(salaryProfiles).forEach(([uid, sp]) => {
+      if (!sp.company || existing[uid]) return;
+      const salaryEntry = getEffectiveEntry(Object.values(sp.basicSalaryHistory || {}), range.to);
+      if (!salaryEntry) return;
+      const tdsEntry = getEffectiveEntry(Object.values(tdsHistory || {}), range.to);
+      const tdsRate = tdsEntry ? tdsEntry.ratePercent : 0;
+      const basicSalary = salaryEntry.amount;
+      const tdsAmount = Math.round(basicSalary * tdsRate / 100);
+      const netAmount = basicSalary - tdsAmount;
+      updates[`payrollRuns/${bsMonthKey}/${uid}`] = {
+        company: sp.company, basicSalary, tdsRate, tdsAmount, bonusPercent: 0, bonusAmount: 0, netAmount,
+        expectedDate: range.to, status: "scheduled", createdAt: new Date().toISOString(), createdBy: me.name,
+      };
+      count++;
+    });
+    if (count === 0) { flash("Nothing new to generate — already up to date."); return; }
+    await db.ref().update(updates);
+    flash(`Generated payroll for ${count} staff.`);
+  };
+  const updatePayrollRow = async (bsMonthKey, uid, fields) => {
+    await db.ref(`payrollRuns/${bsMonthKey}/${uid}`).update({ ...fields, lastEditedBy: me.name, lastEditedAt: new Date().toISOString() });
+    flash("Payroll row updated.");
+  };
+  const removePayrollRow = async (bsMonthKey, uid) => {
+    await db.ref(`payrollRuns/${bsMonthKey}/${uid}`).remove();
+    flash("Payroll row removed.");
   };
 
   const addCategory = (name) => {
@@ -4115,23 +4447,26 @@ function MainApp({ user }) {
     ? [{ id: "myProfile", label: "My Profile" }, { id: "staffProfiles", label: "Staff Profiles" }]
     : [{ id: "myProfile", label: "My Profile" }];
 
-  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : section === "profile" ? profileTabs : [];
+  const salaryTabs = [{ id: "salarySetup", label: "Setup" }, { id: "payroll", label: "Monthly Payroll" }];
+
+  const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : section === "profile" ? profileTabs : section === "salary" ? salaryTabs : [];
 
   const goHome = () => setSection("home");
   const enterExpense = () => { setSection("expense"); setTab("add"); };
   const enterAttendance = () => { setSection("attendance"); setTab("attendance"); };
   const enterProfile = () => { setSection("profile"); setTab("myProfile"); };
   const enterPeople = () => setSection("people");
+  const enterSalary = () => { setSection("salary"); setTab("salarySetup"); };
 
   if (section === "home") {
     return (
       <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
-        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople}
+        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople} onEnterSalary={enterSalary}
         onSignOut={() => auth.signOut()} />
     );
   }
 
-  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : section === "profile" ? "Profile" : "Staff & permissions";
+  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : section === "profile" ? "Profile" : section === "salary" ? "Salary" : "Staff & permissions";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
@@ -4253,6 +4588,18 @@ function MainApp({ user }) {
             onAddDepartment={addDepartment} onRenameDepartment={renameDepartment} onRemoveDepartment={removeDepartment} onSyncDepartments={syncAllDepartments} onSyncExpenseNames={syncAllExpenseStaffNames}
             onAddDesignation={addDesignation} onRenameDesignation={renameDesignation} onRemoveDesignation={removeDesignation}
           />
+        )}
+        {section === "salary" && isSuperAdmin && tab === "salarySetup" && (
+          <SalarySetup
+            staffMap={staffMap} salaryCompanies={salaryCompanies} salaryProfiles={salaryProfiles} tdsHistory={tdsHistory} dateFormat={dateFormat}
+            onAddCompany={addSalaryCompany} onRenameCompany={renameSalaryCompany} onRemoveCompany={removeSalaryCompany}
+            onSetStaffCompany={setStaffPayrollCompany} onAddSalary={addSalaryEntry} onRemoveSalary={removeSalaryEntry}
+            onAddTds={addTdsEntry} onRemoveTds={removeTdsEntry} onAddBonus={addBonusEntry} onRemoveBonus={removeBonusEntry}
+          />
+        )}
+        {section === "salary" && isSuperAdmin && tab === "payroll" && (
+          <MonthlyPayroll staffMap={staffMap} payrollRuns={payrollRuns} dateFormat={dateFormat}
+            onGenerate={generatePayrollForMonth} onUpdateRow={updatePayrollRow} onRemoveRow={removePayrollRow} />
         )}
       </div>
 
