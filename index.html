@@ -1509,6 +1509,7 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
   const [monthOffset, setMonthOffset] = useState(0);
   const [editingUid, setEditingUid] = useState(null);
   const [editDraft, setEditDraft] = useState({});
+  const [search, setSearch] = useState("");
   const NDClass = (typeof NepaliDate !== "undefined" && NepaliDate && NepaliDate.default) ? NepaliDate.default : null;
 
   if (!NDClass) return <Card style={{ color: "var(--rejected)" }}>Nepali calendar isn't available right now — payroll needs it since it's tracked by BS month.</Card>;
@@ -1520,8 +1521,15 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
   const bsMonthKey = `${bsY}-${String(bsM + 1).padStart(2, "0")}`;
   const monthLabel = `${BS_MONTH_NAMES[bsM]} ${bsY}`;
 
-  const rows = Object.entries(payrollRuns[bsMonthKey] || {}).map(([uid, row]) => ({ uid, ...row }))
+  const allRows = Object.entries(payrollRuns[bsMonthKey] || {}).map(([uid, row]) => ({ uid, ...row }))
     .sort((a, b) => ((staffMap[a.uid] || {}).name || "").localeCompare((staffMap[b.uid] || {}).name || ""));
+
+  const q = search.trim().toLowerCase();
+  const rows = q ? allRows.filter((r) => {
+    const s = staffMap[r.uid] || {};
+    const hay = [s.name, r.company, r.status, String(r.basicSalary), String(r.netAmount)].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q);
+  }) : allRows;
 
   const totals = rows.reduce((acc, r) => { acc.basic += r.basicSalary || 0; acc.tds += r.tdsAmount || 0; acc.net += r.netAmount || 0; return acc; }, { basic: 0, tds: 0, net: 0 });
 
@@ -1535,6 +1543,22 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
     const netAmount = basicSalary - tdsAmount + bonusAmount;
     onUpdateRow(bsMonthKey, uid, { basicSalary, tdsRate, tdsAmount, bonusPercent, bonusAmount, netAmount, expectedDate: editDraft.expectedDate, paidDate: editDraft.paidDate || null, status: editDraft.paidDate ? "paid" : "scheduled" });
     setEditingUid(null);
+  };
+
+  const exportCSV = () => {
+    const header = ["Staff", "Company", "Basic Salary", "TDS Rate %", "TDS Amount", "Bonus %", "Bonus Amount", "Net Payable", "Expected Date", "Status", "Paid Date"];
+    const lines = [header.join(",")];
+    rows.forEach((r) => {
+      const s = staffMap[r.uid] || {};
+      const cells = [s.name || r.uid, r.company, r.basicSalary, r.tdsRate, r.tdsAmount, r.bonusPercent || 0, r.bonusAmount || 0, r.netAmount, fmtDate(r.expectedDate, dateFormat), r.status, r.paidDate ? fmtDate(r.paidDate, dateFormat) : ""]
+        .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      lines.push(cells.join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `mypower_payroll_${bsMonthKey}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
 
   return (
@@ -1551,10 +1575,15 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
         <StatCard label="Total net payable" value={totals.net} accent="var(--approved)" />
       </div>
 
-      <button onClick={() => onGenerate(bsY, bsM)} style={{ ...ghostBtn, background: "var(--brand-yellow)", borderColor: "var(--brand-yellow)", alignSelf: "start" }}>Generate / refresh this month's payroll</button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={() => onGenerate(bsY, bsM)} style={{ ...ghostBtn, background: "var(--brand-yellow)", borderColor: "var(--brand-yellow)" }}>Generate / refresh this month's payroll</button>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff, company, status…" style={{ ...smallSelect, flex: "1 1 200px", minWidth: 180 }} />
+        <button onClick={exportCSV} style={ghostBtn}>Export CSV</button>
+      </div>
 
       <div style={{ display: "grid", gap: 8 }}>
-        {rows.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No payroll rows yet for {monthLabel} — click "Generate" above (only staff with a company and salary set will be included).</Card>}
+        {allRows.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No payroll rows yet for {monthLabel} — click "Generate" above (only staff with a company and salary set will be included).</Card>}
+        {allRows.length > 0 && rows.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No rows match "{search}".</Card>}
         {rows.map((r) => {
           const s = staffMap[r.uid] || {};
           const editing = editingUid === r.uid;
@@ -1605,6 +1634,138 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------- Payroll Analysis: aggregate view across all months, for trends,
+// company/staff breakdowns, and totals. Reads the same payrollRuns data as
+// Monthly Payroll but never edits it — this page is reporting-only.
+function PayrollAnalysis({ staffMap, payrollRuns, dateFormat }) {
+  const [staffFilter, setStaffFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState("table");
+
+  const allRows = useMemo(() => {
+    const out = [];
+    Object.entries(payrollRuns || {}).forEach(([bsMonthKey, staffRows]) => {
+      Object.entries(staffRows || {}).forEach(([uid, row]) => out.push({ bsMonthKey, uid, ...row }));
+    });
+    return out.sort((a, b) => b.bsMonthKey.localeCompare(a.bsMonthKey));
+  }, [payrollRuns]);
+
+  const companyList = useMemo(() => [...new Set(allRows.map((r) => r.company).filter(Boolean))].sort(), [allRows]);
+  const staffNameList = useMemo(() => Object.values(staffMap).map((s) => s.name).filter(Boolean), [staffMap]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(() => allRows.filter((r) => {
+    const s = staffMap[r.uid] || {};
+    if (staffFilter !== "All" && s.name !== staffFilter) return false;
+    if (companyFilter !== "All" && r.company !== companyFilter) return false;
+    if (statusFilter !== "All" && r.status !== statusFilter) return false;
+    if (q) {
+      const hay = [s.name, r.company, r.status, r.bsMonthKey].filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }), [allRows, staffMap, staffFilter, companyFilter, statusFilter, q]);
+
+  const totals = useMemo(() => filtered.reduce((acc, r) => {
+    acc.basic += r.basicSalary || 0; acc.tds += r.tdsAmount || 0; acc.bonus += r.bonusAmount || 0; acc.net += r.netAmount || 0;
+    return acc;
+  }, { basic: 0, tds: 0, bonus: 0, net: 0 }), [filtered]);
+
+  const byCompany = useMemo(() => {
+    const m = {}; filtered.forEach((r) => { m[r.company] = (m[r.company] || 0) + (r.netAmount || 0); });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered]);
+
+  const byStaff = useMemo(() => {
+    const m = {}; filtered.forEach((r) => { const n = (staffMap[r.uid] || {}).name || r.uid; m[n] = (m[n] || 0) + (r.netAmount || 0); });
+    return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filtered, staffMap]);
+
+  const byMonth = useMemo(() => {
+    const m = {}; filtered.forEach((r) => { m[r.bsMonthKey] = (m[r.bsMonthKey] || 0) + (r.netAmount || 0); });
+    return Object.entries(m).map(([key, value]) => {
+      const [y, mo] = key.split("-");
+      return { name: `${BS_MONTH_NAMES[Number(mo) - 1]} ${y}`, value, key };
+    }).sort((a, b) => a.key.localeCompare(b.key));
+  }, [filtered]);
+
+  const exportCSV = () => {
+    const header = ["Month (BS)", "Staff", "Company", "Basic Salary", "TDS Rate %", "TDS Amount", "Bonus %", "Bonus Amount", "Net Payable", "Expected Date", "Status", "Paid Date"];
+    const lines = [header.join(",")];
+    filtered.forEach((r) => {
+      const s = staffMap[r.uid] || {};
+      const [y, mo] = r.bsMonthKey.split("-");
+      const cells = [`${BS_MONTH_NAMES[Number(mo) - 1]} ${y}`, s.name || r.uid, r.company, r.basicSalary, r.tdsRate, r.tdsAmount, r.bonusPercent || 0, r.bonusAmount || 0, r.netAmount, fmtDate(r.expectedDate, dateFormat), r.status, r.paidDate ? fmtDate(r.paidDate, dateFormat) : ""]
+        .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`);
+      lines.push(cells.join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `mypower_payroll_analysis.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatCard label="Total basic" value={totals.basic} />
+        <StatCard label="Total TDS" value={totals.tds} accent="var(--pending)" />
+        <StatCard label="Total bonus" value={totals.bonus} accent="var(--on-leave)" />
+        <StatCard label="Total net payable" value={totals.net} accent="var(--approved)" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff, company, month…" style={{ ...smallSelect, flex: "1 1 200px", minWidth: 180 }} />
+        <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{staffNameList.map((n) => <option key={n}>{n}</option>)}
+        </select>
+        <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={smallSelect}>
+          <option>All</option>{companyList.map((c) => <option key={c}>{c}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={smallSelect}>
+          <option value="All">All</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="paid">Paid</option>
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["table", "Table"], ["company", "By Company"], ["staff", "By Staff"], ["trend", "Monthly Trend"]].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{ ...ghostBtn, background: view === id ? "var(--ink)" : "var(--card)", color: view === id ? "var(--paper)" : "var(--ink)" }}>{label}</button>
+          ))}
+          <button onClick={exportCSV} style={ghostBtn}>Export CSV</button>
+        </div>
+      </div>
+
+      {view === "table" && (
+        <div style={{ display: "grid", gap: 2 }}>
+          {filtered.length === 0 && <Card style={{ color: "var(--ink-soft)" }}>No payroll records match these filters.</Card>}
+          {filtered.map((r) => {
+            const s = staffMap[r.uid] || {};
+            const [y, mo] = r.bsMonthKey.split("-");
+            return (
+              <div key={r.bsMonthKey + r.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{s.name || r.uid} <span style={{ fontWeight: 400, color: "var(--ink-soft)", fontSize: 12 }}>· {BS_MONTH_NAMES[Number(mo) - 1]} {y}</span></div>
+                  <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 2 }}>{r.company} · Basic {fmtNPR(r.basicSalary)} · TDS {fmtNPR(r.tdsAmount)}{r.bonusAmount > 0 ? ` · Bonus ${fmtNPR(r.bonusAmount)}` : ""}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15 }}>{fmtNPR(r.netAmount)}</div>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: r.status === "paid" ? "var(--approved)" : "var(--pending)" }}>{r.status === "paid" ? "PAID" : "SCHEDULED"}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {view === "company" && <Card><SimpleBarChart data={byCompany} /></Card>}
+      {view === "staff" && <Card><SimpleBarChart data={byStaff} /></Card>}
+      {view === "trend" && <Card><SimpleTrendChart data={byMonth} /></Card>}
     </div>
   );
 }
@@ -4441,7 +4602,7 @@ function MainApp({ user }) {
     ? [{ id: "myProfile", label: "My Profile" }, { id: "staffProfiles", label: "Staff Profiles" }]
     : [{ id: "myProfile", label: "My Profile" }];
 
-  const salaryTabs = [{ id: "salarySetup", label: "Setup" }, { id: "payroll", label: "Monthly Payroll" }];
+  const salaryTabs = [{ id: "salarySetup", label: "Setup" }, { id: "payroll", label: "Monthly Payroll" }, { id: "payrollAnalysis", label: "Analysis" }];
 
   const sectionTabs = section === "expense" ? expenseTabs : section === "attendance" ? attendanceTabs : section === "profile" ? profileTabs : section === "salary" ? salaryTabs : [];
 
@@ -4594,6 +4755,9 @@ function MainApp({ user }) {
         {section === "salary" && isSuperAdmin && tab === "payroll" && (
           <MonthlyPayroll staffMap={staffMap} payrollRuns={payrollRuns} dateFormat={dateFormat}
             onGenerate={generatePayrollForMonth} onUpdateRow={updatePayrollRow} onRemoveRow={removePayrollRow} />
+        )}
+        {section === "salary" && isSuperAdmin && tab === "payrollAnalysis" && (
+          <PayrollAnalysis staffMap={staffMap} payrollRuns={payrollRuns} dateFormat={dateFormat} />
         )}
       </div>
 
