@@ -3220,7 +3220,7 @@ function HomeCard({ label, sub, onClick, accent }) {
   );
 }
 
-function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onEnterSalary, onSignOut }) {
+function HomeScreen({ me, myProfile, myAttendance, latestNotice, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onEnterSalary, onEnterNotices, onSignOut }) {
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   const photo = myProfile && myProfile.photo;
@@ -3265,17 +3265,95 @@ function HomeScreen({ me, myProfile, myAttendance, isSuperAdmin, isMobile, onEnt
             <button onClick={() => setCheckoutDismissed(true)} style={{ ...ghostBtn, padding: "6px 10px", fontSize: 11.5, borderColor: "var(--no-checkout)", color: "var(--no-checkout)" }}>Got it</button>
           </div>
         )}
+        {latestNotice && (
+          <button onClick={onEnterNotices} style={{ width: "100%", maxWidth: 420, textAlign: "left", background: latestNotice.pinned ? "#FFF7E0" : "var(--card)", border: latestNotice.pinned ? "1px solid var(--brand-yellow)" : "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 20, cursor: "pointer", display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {latestNotice.pinned && <span style={{ fontSize: 12 }}>📌</span>}
+              <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-soft)" }}>Notice</span>
+            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>{latestNotice.title}</div>
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{latestNotice.message}</div>
+            <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 2 }}>View all notices →</div>
+          </button>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, width: "100%" }}>
           <HomeCard label="Record your expense" sub="Log a claim, check on past ones, or see your spending." accent="var(--brand-yellow)" onClick={onEnterExpense} />
           <HomeCard label="Mark your attendance" sub="Check in, check out, or see your attendance history." accent="var(--approved)" onClick={onEnterAttendance} />
         </div>
-        {isSuperAdmin && (
-          <div style={{ display: "flex", gap: 10, marginTop: 28, flexWrap: "wrap", justifyContent: "center" }}>
-            <button onClick={onEnterPeople} style={ghostBtn}>Staff & permissions →</button>
-            <button onClick={onEnterSalary} style={ghostBtn}>Salary →</button>
+        <div style={{ display: "flex", gap: 10, marginTop: 28, flexWrap: "wrap", justifyContent: "center" }}>
+          <button onClick={onEnterNotices} style={ghostBtn}>Notices →</button>
+          {isSuperAdmin && (
+            <>
+              <button onClick={onEnterPeople} style={ghostBtn}>Staff & permissions →</button>
+              <button onClick={onEnterSalary} style={ghostBtn}>Salary →</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Notice board (everyone reads; Admin + Super Admin post & pin) ----------
+function NoticeBoard({ allNotices, isAdmin, myName, dateFormat, onPost, onTogglePin, onDelete }) {
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const pinned = allNotices.filter((n) => n.pinned);
+  const others = allNotices.filter((n) => !n.pinned);
+
+  const submit = async () => {
+    if (!title.trim() || !message.trim()) return;
+    setBusy(true);
+    try {
+      await onPost(title, message);
+      setTitle(""); setMessage(""); setShowForm(false);
+    } finally { setBusy(false); }
+  };
+
+  const NoticeCard = ({ n }) => (
+    <Card key={n.id} style={{ borderColor: n.pinned ? "var(--brand-yellow)" : "var(--line)", background: n.pinned ? "#FFF7E0" : "var(--card)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {n.pinned && <span style={{ fontSize: 12.5 }}>📌</span>}
+          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 15.5 }}>{n.title}</div>
+        </div>
+        {isAdmin && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button onClick={() => onTogglePin(n.id, n.pinned)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11 }}>{n.pinned ? "Unpin" : "Pin"}</button>
+            <button onClick={() => { if (confirm("Delete this notice?")) onDelete(n.id); }} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11, color: "var(--rejected)", borderColor: "var(--rejected)" }}>Delete</button>
           </div>
         )}
       </div>
+      <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 8, whiteSpace: "pre-wrap" }}>{n.message}</div>
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 10 }}>{n.postedBy} · {fmtDate((n.postedAt || "").slice(0, 10), dateFormat)}</div>
+    </Card>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
+      {isAdmin && (
+        <Card>
+          {!showForm ? (
+            <button onClick={() => setShowForm(true)} style={{ width: "100%", padding: 12, borderRadius: 8, border: "1px dashed var(--line)", background: "var(--paper)", fontSize: 13.5, fontWeight: 600, cursor: "pointer", color: "var(--ink)" }}>+ New notice</button>
+          ) : (
+            <div>
+              <div style={{ fontFamily: "'Lora', serif", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>New notice</div>
+              <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Office closed on Tihar" style={inputStyle} /></Field>
+              <Field label="Message"><textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical" }} /></Field>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button onClick={submit} disabled={busy || !title.trim() || !message.trim()} style={{ padding: "10px 18px", borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 13.5, cursor: busy ? "default" : "pointer" }}>{busy ? "Posting…" : "Post notice"}</button>
+                <button onClick={() => { setShowForm(false); setTitle(""); setMessage(""); }} style={ghostBtn}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+      {allNotices.length === 0 && <div style={{ fontSize: 13, color: "var(--ink-soft)", textAlign: "center", padding: "30px 0" }}>No notices yet.</div>}
+      {pinned.map((n) => <NoticeCard key={n.id} n={n} />)}
+      {others.map((n) => <NoticeCard key={n.id} n={n} />)}
     </div>
   );
 }
@@ -3728,6 +3806,7 @@ function MainApp({ user }) {
   const [salaryCompanies, setSalaryCompanies] = useState([]);
   const [salaryProfiles, setSalaryProfiles] = useState({});
   const [payrollRuns, setPayrollRuns] = useState({});
+  const [allNotices, setAllNotices] = useState([]);
   const [leaveBusy, setLeaveBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
@@ -3874,6 +3953,17 @@ function MainApp({ user }) {
     ref.on("value", cb);
     return () => ref.off("value", cb);
   }, [isAdmin]);
+
+  useEffect(() => {
+    const ref = db.ref("notices");
+    const cb = (snap) => {
+      const arr = objToArr(snap.val());
+      arr.sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1));
+      setAllNotices(arr);
+    };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, []);
 
   useEffect(() => {
     const ref = db.ref("attendance");
@@ -4055,6 +4145,17 @@ function MainApp({ user }) {
     await db.ref("advances/" + staffUid + "/" + advanceId).remove();
     flash("Advance entry deleted.");
   };
+
+  // ---------- Notice board (Admin + Super Admin can post; everyone can read) ----------
+  const postNotice = async (title, message) => {
+    const t = (title || "").trim(), m = (message || "").trim();
+    if (!t || !m) { flash("Enter both a title and a message."); return; }
+    const newRef = db.ref("notices").push();
+    await newRef.set({ title: t, message: m, pinned: false, postedBy: me.name, postedByUid: user.uid, postedAt: new Date().toISOString() });
+    flash("Notice posted.");
+  };
+  const toggleNoticePin = async (id, current) => { await db.ref("notices/" + id + "/pinned").set(!current); };
+  const deleteNotice = async (id) => { await db.ref("notices/" + id).remove(); flash("Notice deleted."); };
 
   // ---------- Salary (Super Admin only) ----------
   const addSalaryCompany = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("salaryConfig/companies").push({ name: clean }); };
@@ -4657,16 +4758,19 @@ function MainApp({ user }) {
   const enterProfile = () => { setSection("profile"); setTab("myProfile"); };
   const enterPeople = () => setSection("people");
   const enterSalary = () => { setSection("salary"); setTab("salarySetup"); };
+  const enterNotices = () => setSection("notices");
+
+  const latestNotice = allNotices.length ? allNotices[0] : null;
 
   if (section === "home") {
     return (
-      <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
-        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople} onEnterSalary={enterSalary}
+      <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} latestNotice={latestNotice} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+        onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople} onEnterSalary={enterSalary} onEnterNotices={enterNotices}
         onSignOut={() => { try { localStorage.removeItem(NAV_STORAGE_KEY); } catch (e) {} auth.signOut(); }} />
     );
   }
 
-  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : section === "profile" ? "Profile" : section === "salary" ? "Salary" : "Staff & permissions";
+  const sectionLabel = section === "expense" ? "Expense" : section === "attendance" ? "Attendance" : section === "profile" ? "Profile" : section === "salary" ? "Salary" : section === "notices" ? "Notices" : "Staff & permissions";
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 60px" }}>
@@ -4692,7 +4796,7 @@ function MainApp({ user }) {
         </div>
       </div>
 
-      {section !== "people" && (
+      {section !== "people" && section !== "notices" && (
         <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--line)", background: "var(--paper)", overflowX: "auto" }}>
           {sectionTabs.map((it) => (
             <button key={it.id} onClick={() => setTab(it.id)} style={{
@@ -4803,6 +4907,10 @@ function MainApp({ user }) {
         )}
         {section === "salary" && isSuperAdmin && tab === "payrollAnalysis" && (
           <PayrollAnalysis staffMap={staffMap} payrollRuns={payrollRuns} dateFormat={dateFormat} />
+        )}
+
+        {section === "notices" && (
+          <NoticeBoard allNotices={allNotices} isAdmin={isAdmin} myName={me.name} dateFormat={dateFormat} onPost={postNotice} onTogglePin={toggleNoticePin} onDelete={deleteNotice} />
         )}
       </div>
 
