@@ -3220,12 +3220,39 @@ function HomeCard({ label, sub, onClick, accent }) {
   );
 }
 
-function HomeScreen({ me, myProfile, myAttendance, latestNotice, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onEnterSalary, onEnterNotices, onSignOut }) {
+// ---------- New-notice popup: shown on Home until the person dismisses it; queued
+// one-at-a-time so several new notices are each seen once, in order. ----------
+function NoticePopup({ notice, queueCount, noticeReactions = {}, noticeComments = {}, myUid, myName, isAdmin, onReact, onAddComment, onDeleteComment, onClose, onViewAll }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(30,26,20,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "var(--paper)", borderRadius: 14, maxWidth: 420, width: "100%", maxHeight: "85vh", overflowY: "auto", padding: "20px 20px 18px", border: notice.pinned ? "1.5px solid var(--brand-yellow)" : "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          {notice.pinned && <span style={{ fontSize: 13 }}>📌</span>}
+          <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-soft)" }}>New notice{queueCount > 1 ? ` · 1 of ${queueCount}` : ""}</span>
+        </div>
+        <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 18, marginBottom: 8 }}>{notice.title}</div>
+        <div style={{ fontSize: 14, color: "var(--ink)", whiteSpace: "pre-wrap", marginBottom: 10 }}>{notice.message}</div>
+        <div style={{ fontSize: 11, color: "var(--ink-soft)", marginBottom: 14 }}>{notice.postedBy}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 12, borderTop: "1px solid var(--line)", marginBottom: 16 }}>
+          <ReactionBar noticeId={notice.id} reactions={noticeReactions[notice.id]} myUid={myUid} onReact={onReact} />
+          <CommentSection noticeId={notice.id} comments={noticeComments[notice.id]} myUid={myUid} myName={myName} isAdmin={isAdmin} onAdd={onAddComment} onDelete={onDeleteComment} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: 12, borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Got it</button>
+          <button onClick={() => { onClose(); onViewAll(); }} style={ghostBtn}>See all →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeScreen({ me, myProfile, myAttendance, latestNotice, unseenNotices = [], noticeReactions = {}, noticeComments = {}, myUid, isAdmin, onMarkNoticeSeen, onReactNotice, onAddNoticeComment, onDeleteNoticeComment, isSuperAdmin, isMobile, onEnterExpense, onEnterAttendance, onEnterProfile, onEnterPeople, onEnterSalary, onEnterNotices, onSignOut }) {
   const profileStatus = (myProfile && myProfile.status) || "not_started";
   const profilePending = profileStatus !== "submitted" && profileStatus !== "edit_requested";
   const photo = myProfile && myProfile.photo;
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [checkoutDismissed, setCheckoutDismissed] = useState(false);
+  const popupNotice = unseenNotices && unseenNotices.length ? unseenNotices[0] : null;
   const yesterdayKey = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -3235,6 +3262,11 @@ function HomeScreen({ me, myProfile, myAttendance, latestNotice, isSuperAdmin, i
   const firstName = (me.name || "").split(" ")[0] || me.name;
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", minHeight: "80vh", display: "flex", flexDirection: "column" }}>
+      {popupNotice && (
+        <NoticePopup notice={popupNotice} queueCount={unseenNotices.length} noticeReactions={noticeReactions} noticeComments={noticeComments}
+          myUid={myUid} myName={me.name} isAdmin={isAdmin} onReact={onReactNotice} onAddComment={onAddNoticeComment} onDeleteComment={onDeleteNoticeComment}
+          onClose={() => onMarkNoticeSeen(popupNotice.id)} onViewAll={onEnterNotices} />
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "16px 16px 0" : "24px 24px 0" }}>
         <button onClick={onEnterProfile} title="Your profile" style={{ position: "relative", border: "none", background: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}>
           {photo ? (
@@ -3294,8 +3326,76 @@ function HomeScreen({ me, myProfile, myAttendance, latestNotice, isSuperAdmin, i
   );
 }
 
+// ---------- Reactions + comments (shared by the Home popup and the Notices page) ----------
+const NOTICE_REACTIONS = [
+  { id: "like", emoji: "👍", label: "Like" },
+  { id: "love", emoji: "❤️", label: "Love" },
+  { id: "haha", emoji: "😂", label: "Haha" },
+  { id: "wow", emoji: "😮", label: "Wow" },
+];
+
+function ReactionBar({ noticeId, reactions, myUid, onReact }) {
+  const mine = reactions && reactions[myUid] ? reactions[myUid].type : null;
+  const counts = {};
+  Object.values(reactions || {}).forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {NOTICE_REACTIONS.map((r) => (
+        <button key={r.id} onClick={() => onReact(noticeId, r.id)} style={{
+          display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+          border: "1.5px solid " + (mine === r.id ? "var(--brand-yellow)" : "var(--line)"),
+          background: mine === r.id ? "var(--brand-yellow)" : "var(--card)", color: "var(--ink)", fontWeight: mine === r.id ? 700 : 500,
+        }}>
+          <span>{r.emoji}</span>
+          {counts[r.id] > 0 && <span>{counts[r.id]}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CommentSection({ noticeId, comments, myUid, myName, isAdmin, onAdd, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const list = Object.entries(comments || {}).map(([id, c]) => ({ id, ...c })).sort((a, b) => (a.postedAt < b.postedAt ? -1 : 1));
+
+  const submit = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    try { await onAdd(noticeId, text); setText(""); } finally { setBusy(false); }
+  };
+
+  return (
+    <div>
+      <button onClick={() => setOpen((o) => !o)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, color: "var(--ink-soft)", fontWeight: 600 }}>
+        💬 {list.length > 0 ? `${list.length} comment${list.length === 1 ? "" : "s"}` : "Comment"}
+      </button>
+      {open && (
+        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          {list.map((c) => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, background: "var(--paper-dark)", borderRadius: 8, padding: "7px 10px" }}>
+              <div style={{ fontSize: 12.5 }}>
+                <b>{c.byName}</b> <span style={{ color: "var(--ink-soft)" }}>{c.text}</span>
+              </div>
+              {(c.byUid === myUid || isAdmin) && (
+                <button onClick={() => onDelete(noticeId, c.id)} style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-soft)", fontSize: 11, flexShrink: 0 }}>✕</button>
+              )}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a comment…" style={{ ...inputStyle, fontSize: 12.5, padding: "8px 10px" }}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+            <button onClick={submit} disabled={busy || !text.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 12, cursor: busy ? "default" : "pointer" }}>Send</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Notice board (everyone reads; Admin + Super Admin post & pin) ----------
-function NoticeBoard({ allNotices, isAdmin, myName, dateFormat, onPost, onTogglePin, onDelete }) {
+function NoticeBoard({ allNotices, isAdmin, myUid, myName, dateFormat, noticeReactions = {}, noticeComments = {}, onPost, onTogglePin, onDelete, onReact, onAddComment, onDeleteComment }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -3328,7 +3428,11 @@ function NoticeBoard({ allNotices, isAdmin, myName, dateFormat, onPost, onToggle
         )}
       </div>
       <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 8, whiteSpace: "pre-wrap" }}>{n.message}</div>
-      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 10 }}>{n.postedBy} · {fmtDate((n.postedAt || "").slice(0, 10), dateFormat)}</div>
+      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 10, marginBottom: 12 }}>{n.postedBy} · {fmtDate((n.postedAt || "").slice(0, 10), dateFormat)}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+        <ReactionBar noticeId={n.id} reactions={noticeReactions[n.id]} myUid={myUid} onReact={onReact} />
+        <CommentSection noticeId={n.id} comments={noticeComments[n.id]} myUid={myUid} myName={myName} isAdmin={isAdmin} onAdd={onAddComment} onDelete={onDeleteComment} />
+      </div>
     </Card>
   );
 
@@ -3807,6 +3911,9 @@ function MainApp({ user }) {
   const [salaryProfiles, setSalaryProfiles] = useState({});
   const [payrollRuns, setPayrollRuns] = useState({});
   const [allNotices, setAllNotices] = useState([]);
+  const [myNoticeSeen, setMyNoticeSeen] = useState({});
+  const [noticeReactions, setNoticeReactions] = useState({});
+  const [noticeComments, setNoticeComments] = useState({});
   const [leaveBusy, setLeaveBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
@@ -3961,6 +4068,27 @@ function MainApp({ user }) {
       arr.sort((a, b) => (a.postedAt < b.postedAt ? 1 : -1));
       setAllNotices(arr);
     };
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, []);
+
+  useEffect(() => {
+    const ref = db.ref("noticeSeen/" + user.uid);
+    const cb = (snap) => setMyNoticeSeen(snap.val() || {});
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, [user.uid]);
+
+  useEffect(() => {
+    const ref = db.ref("noticeReactions");
+    const cb = (snap) => setNoticeReactions(snap.val() || {});
+    ref.on("value", cb);
+    return () => ref.off("value", cb);
+  }, []);
+
+  useEffect(() => {
+    const ref = db.ref("noticeComments");
+    const cb = (snap) => setNoticeComments(snap.val() || {});
     ref.on("value", cb);
     return () => ref.off("value", cb);
   }, []);
@@ -4156,6 +4284,19 @@ function MainApp({ user }) {
   };
   const toggleNoticePin = async (id, current) => { await db.ref("notices/" + id + "/pinned").set(!current); };
   const deleteNotice = async (id) => { await db.ref("notices/" + id).remove(); flash("Notice deleted."); };
+  const markNoticeSeen = async (id) => { await db.ref("noticeSeen/" + user.uid + "/" + id).set(true); };
+  const reactToNotice = async (noticeId, type) => {
+    const cur = (noticeReactions[noticeId] || {})[user.uid];
+    const path = "noticeReactions/" + noticeId + "/" + user.uid;
+    if (cur && cur.type === type) { await db.ref(path).remove(); } else { await db.ref(path).set({ type, name: me.name }); }
+  };
+  const addNoticeComment = async (noticeId, text) => {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    const newRef = db.ref("noticeComments/" + noticeId).push();
+    await newRef.set({ text: clean, byName: me.name, byUid: user.uid, postedAt: new Date().toISOString() });
+  };
+  const deleteNoticeComment = async (noticeId, commentId) => { await db.ref("noticeComments/" + noticeId + "/" + commentId).remove(); };
 
   // ---------- Salary (Super Admin only) ----------
   const addSalaryCompany = (name) => { const clean = (name || "").trim(); if (!clean) return; db.ref("salaryConfig/companies").push({ name: clean }); };
@@ -4761,10 +4902,14 @@ function MainApp({ user }) {
   const enterNotices = () => setSection("notices");
 
   const latestNotice = allNotices.length ? allNotices[0] : null;
+  const unseenNotices = allNotices.filter((n) => !myNoticeSeen[n.id]).sort((a, b) => (a.postedAt < b.postedAt ? -1 : 1));
 
   if (section === "home") {
     return (
-      <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} latestNotice={latestNotice} isSuperAdmin={isSuperAdmin} isMobile={isMobile}
+      <HomeScreen me={me} myProfile={myProfile} myAttendance={myAttendance} latestNotice={latestNotice} unseenNotices={unseenNotices}
+        noticeReactions={noticeReactions} noticeComments={noticeComments} myUid={user.uid} isAdmin={isAdmin}
+        onMarkNoticeSeen={markNoticeSeen} onReactNotice={reactToNotice} onAddNoticeComment={addNoticeComment} onDeleteNoticeComment={deleteNoticeComment}
+        isSuperAdmin={isSuperAdmin} isMobile={isMobile}
         onEnterExpense={enterExpense} onEnterAttendance={enterAttendance} onEnterProfile={enterProfile} onEnterPeople={enterPeople} onEnterSalary={enterSalary} onEnterNotices={enterNotices}
         onSignOut={() => { try { localStorage.removeItem(NAV_STORAGE_KEY); } catch (e) {} auth.signOut(); }} />
     );
@@ -4910,7 +5055,10 @@ function MainApp({ user }) {
         )}
 
         {section === "notices" && (
-          <NoticeBoard allNotices={allNotices} isAdmin={isAdmin} myName={me.name} dateFormat={dateFormat} onPost={postNotice} onTogglePin={toggleNoticePin} onDelete={deleteNotice} />
+          <NoticeBoard allNotices={allNotices} isAdmin={isAdmin} myUid={user.uid} myName={me.name} dateFormat={dateFormat}
+            noticeReactions={noticeReactions} noticeComments={noticeComments}
+            onPost={postNotice} onTogglePin={toggleNoticePin} onDelete={deleteNotice}
+            onReact={reactToNotice} onAddComment={addNoticeComment} onDeleteComment={deleteNoticeComment} />
         )}
       </div>
 
