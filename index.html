@@ -134,13 +134,14 @@ function localDateKey(d) { d = d || new Date(); return `${d.getFullYear()}-${pad
 // always landing back on Home — but only within the last 24 hours, so a
 // genuinely new day still starts fresh.
 const NAV_STORAGE_KEY = "mypower_last_nav";
-const NAV_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 function loadSavedNav() {
   try {
     const raw = localStorage.getItem(NAV_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.savedAt || Date.now() - parsed.savedAt > NAV_MAX_AGE_MS) return null;
+    // Resume only within the same calendar day (local time) it was saved —
+    // the moment the clock crosses midnight, the next open lands on Home.
+    if (!parsed || !parsed.savedAt || !parsed.savedDateKey || parsed.savedDateKey !== localDateKey()) return null;
     return parsed;
   } catch (e) { return null; }
 }
@@ -3951,7 +3952,7 @@ function MainApp({ user }) {
   // Same-day resume: save section/tab (with a timestamp) on every change so a
   // full close-and-reopen within 24 hours picks up where they left off.
   useEffect(() => {
-    try { localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify({ section, tab, savedAt: Date.now() })); } catch (e) { /* fine if storage is unavailable */ }
+    try { localStorage.setItem(NAV_STORAGE_KEY, JSON.stringify({ section, tab, savedAt: Date.now(), savedDateKey: localDateKey() })); } catch (e) { /* fine if storage is unavailable */ }
   }, [section, tab]);
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 2200); };
