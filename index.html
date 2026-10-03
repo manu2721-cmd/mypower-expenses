@@ -3336,21 +3336,45 @@ const NOTICE_REACTIONS = [
 ];
 
 function ReactionBar({ noticeId, reactions, myUid, onReact }) {
+  const [whoOpen, setWhoOpen] = useState(false);
   const mine = reactions && reactions[myUid] ? reactions[myUid].type : null;
   const counts = {};
-  Object.values(reactions || {}).forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
+  const namesByType = {};
+  Object.values(reactions || {}).forEach((r) => {
+    counts[r.type] = (counts[r.type] || 0) + 1;
+    (namesByType[r.type] = namesByType[r.type] || []).push(r.name);
+  });
+  const totalCount = Object.values(counts).reduce((s, c) => s + c, 0);
   return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {NOTICE_REACTIONS.map((r) => (
-        <button key={r.id} onClick={() => onReact(noticeId, r.id)} style={{
-          display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer",
-          border: "1.5px solid " + (mine === r.id ? "var(--brand-yellow)" : "var(--line)"),
-          background: mine === r.id ? "var(--brand-yellow)" : "var(--card)", color: "var(--ink)", fontWeight: mine === r.id ? 700 : 500,
-        }}>
-          <span>{r.emoji}</span>
-          {counts[r.id] > 0 && <span>{counts[r.id]}</span>}
-        </button>
-      ))}
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {NOTICE_REACTIONS.map((r) => (
+          <button key={r.id} onClick={() => onReact(noticeId, r.id)} style={{
+            display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer",
+            border: "1.5px solid " + (mine === r.id ? "var(--brand-yellow)" : "var(--line)"),
+            background: mine === r.id ? "var(--brand-yellow)" : "var(--card)", color: "var(--ink)", fontWeight: mine === r.id ? 700 : 500,
+          }}>
+            <span>{r.emoji}</span>
+            {counts[r.id] > 0 && <span>{counts[r.id]}</span>}
+          </button>
+        ))}
+      </div>
+      {totalCount > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <button onClick={() => setWhoOpen((o) => !o)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 11, color: "var(--ink-soft)", fontWeight: 600 }}>
+            {whoOpen ? "Hide who reacted" : "See who reacted"}
+          </button>
+          {whoOpen && (
+            <div style={{ marginTop: 6, display: "grid", gap: 3 }}>
+              {NOTICE_REACTIONS.filter((r) => namesByType[r.id] && namesByType[r.id].length).map((r) => (
+                <div key={r.id} style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>
+                  <span>{r.emoji}</span> {namesByType[r.id].join(", ")}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3396,11 +3420,15 @@ function CommentSection({ noticeId, comments, myUid, myName, isAdmin, onAdd, onD
 }
 
 // ---------- Notice board (everyone reads; Admin + Super Admin post & pin) ----------
-function NoticeBoard({ allNotices, isAdmin, myUid, myName, dateFormat, noticeReactions = {}, noticeComments = {}, onPost, onTogglePin, onDelete, onReact, onAddComment, onDeleteComment }) {
+function NoticeBoard({ allNotices, isAdmin, myUid, myName, dateFormat, noticeReactions = {}, noticeComments = {}, onPost, onTogglePin, onDelete, onEdit, onReact, onAddComment, onDeleteComment }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editMessage, setEditMessage] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   const pinned = allNotices.filter((n) => n.pinned);
   const others = allNotices.filter((n) => !n.pinned);
@@ -3414,22 +3442,47 @@ function NoticeBoard({ allNotices, isAdmin, myUid, myName, dateFormat, noticeRea
     } finally { setBusy(false); }
   };
 
+  const startEdit = (n) => { setEditingId(n.id); setEditTitle(n.title); setEditMessage(n.message); };
+  const cancelEdit = () => { setEditingId(null); setEditTitle(""); setEditMessage(""); };
+  const saveEdit = async () => {
+    if (!editTitle.trim() || !editMessage.trim()) return;
+    setEditBusy(true);
+    try { await onEdit(editingId, editTitle, editMessage); cancelEdit(); } finally { setEditBusy(false); }
+  };
+
   const NoticeCard = ({ n }) => (
     <Card key={n.id} style={{ borderColor: n.pinned ? "var(--brand-yellow)" : "var(--line)", background: n.pinned ? "#FFF7E0" : "var(--card)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {n.pinned && <span style={{ fontSize: 12.5 }}>📌</span>}
-          <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 15.5 }}>{n.title}</div>
-        </div>
-        {isAdmin && (
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <button onClick={() => onTogglePin(n.id, n.pinned)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11 }}>{n.pinned ? "Unpin" : "Pin"}</button>
-            <button onClick={() => { if (confirm("Delete this notice?")) onDelete(n.id); }} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11, color: "var(--rejected)", borderColor: "var(--rejected)" }}>Delete</button>
+      {editingId === n.id ? (
+        <div>
+          <Field label="Title"><input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={inputStyle} /></Field>
+          <Field label="Message"><textarea value={editMessage} onChange={(e) => setEditMessage(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical" }} /></Field>
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <button onClick={saveEdit} disabled={editBusy || !editTitle.trim() || !editMessage.trim()} style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: "var(--brand-yellow)", color: "var(--ink)", fontWeight: 600, fontSize: 13, cursor: editBusy ? "default" : "pointer" }}>{editBusy ? "Saving…" : "Save"}</button>
+            <button onClick={cancelEdit} style={ghostBtn}>Cancel</button>
           </div>
-        )}
-      </div>
-      <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 8, whiteSpace: "pre-wrap" }}>{n.message}</div>
-      <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 10, marginBottom: 12 }}>{n.postedBy} · {fmtDate((n.postedAt || "").slice(0, 10), dateFormat)}</div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {n.pinned && <span style={{ fontSize: 12.5 }}>📌</span>}
+              <div style={{ fontFamily: "'Lora', serif", fontWeight: 700, fontSize: 15.5 }}>{n.title}</div>
+            </div>
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button onClick={() => onTogglePin(n.id, n.pinned)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11 }}>{n.pinned ? "Unpin" : "Pin"}</button>
+                <button onClick={() => startEdit(n)} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11 }}>Edit</button>
+                <button onClick={() => { if (confirm("Delete this notice?")) onDelete(n.id); }} style={{ ...ghostBtn, padding: "5px 9px", fontSize: 11, color: "var(--rejected)", borderColor: "var(--rejected)" }}>Delete</button>
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 8, whiteSpace: "pre-wrap" }}>{n.message}</div>
+          <div style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 10, marginBottom: 12 }}>
+            {n.postedBy} · {fmtDate((n.postedAt || "").slice(0, 10), dateFormat)}
+            {n.editedBy && <span style={{ fontStyle: "italic" }}> · edited by {n.editedBy}</span>}
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
         <ReactionBar noticeId={n.id} reactions={noticeReactions[n.id]} myUid={myUid} onReact={onReact} />
         <CommentSection noticeId={n.id} comments={noticeComments[n.id]} myUid={myUid} myName={myName} isAdmin={isAdmin} onAdd={onAddComment} onDelete={onDeleteComment} />
@@ -4285,6 +4338,12 @@ function MainApp({ user }) {
   };
   const toggleNoticePin = async (id, current) => { await db.ref("notices/" + id + "/pinned").set(!current); };
   const deleteNotice = async (id) => { await db.ref("notices/" + id).remove(); flash("Notice deleted."); };
+  const editNotice = async (id, title, message) => {
+    const t = (title || "").trim(), m = (message || "").trim();
+    if (!t || !m) return;
+    await db.ref("notices/" + id).update({ title: t, message: m, editedBy: me.name, editedAt: new Date().toISOString() });
+    flash("Notice updated.");
+  };
   const markNoticeSeen = async (id) => { await db.ref("noticeSeen/" + user.uid + "/" + id).set(true); };
   const reactToNotice = async (noticeId, type) => {
     const cur = (noticeReactions[noticeId] || {})[user.uid];
@@ -5058,7 +5117,7 @@ function MainApp({ user }) {
         {section === "notices" && (
           <NoticeBoard allNotices={allNotices} isAdmin={isAdmin} myUid={user.uid} myName={me.name} dateFormat={dateFormat}
             noticeReactions={noticeReactions} noticeComments={noticeComments}
-            onPost={postNotice} onTogglePin={toggleNoticePin} onDelete={deleteNotice}
+            onPost={postNotice} onTogglePin={toggleNoticePin} onDelete={deleteNotice} onEdit={editNotice}
             onReact={reactToNotice} onAddComment={addNoticeComment} onDeleteComment={deleteNoticeComment} />
         )}
       </div>
