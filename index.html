@@ -1570,15 +1570,27 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
 
   const totals = rows.reduce((acc, r) => { acc.basic += r.basicSalary || 0; acc.tds += r.tdsAmount || 0; acc.net += r.netAmount || 0; return acc; }, { basic: 0, tds: 0, net: 0 });
 
-  const startEdit = (r) => { setEditingUid(r.uid); setEditDraft({ basicSalary: r.basicSalary, tdsRate: r.tdsRate, bonusPercent: r.bonusPercent || 0, expectedDate: r.expectedDate, paidDate: r.paidDate || "" }); };
+  const startEdit = (r) => {
+    setEditingUid(r.uid);
+    setEditDraft({
+      basicSalary: r.basicSalary, tdsRate: r.tdsRate, bonusPercent: r.bonusPercent || 0,
+      bonusManual: !!r.bonusManual, bonusAmountOverride: r.bonusManual ? r.bonusAmount : "",
+      expectedDate: r.expectedDate, paidDate: r.paidDate || "",
+    });
+  };
   const saveEdit = (uid) => {
     const basicSalary = Number(editDraft.basicSalary) || 0;
     const tdsRate = Number(editDraft.tdsRate) || 0;
     const bonusPercent = Number(editDraft.bonusPercent) || 0;
-    const tdsAmount = Math.round(basicSalary * tdsRate / 100);
-    const bonusAmount = Math.round(basicSalary * bonusPercent / 100);
-    const netAmount = basicSalary - tdsAmount + bonusAmount;
-    onUpdateRow(bsMonthKey, uid, { basicSalary, tdsRate, tdsAmount, bonusPercent, bonusAmount, netAmount, expectedDate: editDraft.expectedDate, paidDate: editDraft.paidDate || null, status: editDraft.paidDate ? "paid" : "scheduled" });
+    const hasOverride = editDraft.bonusAmountOverride !== "" && editDraft.bonusAmountOverride != null;
+    const bonusAmount = hasOverride ? (Number(editDraft.bonusAmountOverride) || 0) : Math.round(basicSalary * bonusPercent / 100);
+    // TDS is deducted on basic salary + bonus combined, not basic salary alone.
+    const tdsAmount = Math.round((basicSalary + bonusAmount) * tdsRate / 100);
+    const netAmount = basicSalary + bonusAmount - tdsAmount;
+    onUpdateRow(bsMonthKey, uid, {
+      basicSalary, tdsRate, tdsAmount, bonusPercent: hasOverride ? 0 : bonusPercent, bonusAmount, bonusManual: hasOverride,
+      netAmount, expectedDate: editDraft.expectedDate, paidDate: editDraft.paidDate || null, status: editDraft.paidDate ? "paid" : "scheduled",
+    });
     setEditingUid(null);
   };
 
@@ -1637,8 +1649,8 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
               {!editing ? (
                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10, fontSize: 13 }}>
                   <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Basic</div>{fmtNPR(r.basicSalary)}</div>
-                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS ({r.tdsRate}%)</div>{fmtNPR(r.tdsAmount)}</div>
-                  {r.bonusAmount > 0 && <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus ({r.bonusPercent}%)</div>{fmtNPR(r.bonusAmount)}</div>}
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS ({r.tdsRate}% of basic+bonus)</div>{fmtNPR(r.tdsAmount)}</div>
+                  {r.bonusAmount > 0 && <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus ({r.bonusManual ? "manual" : `${r.bonusPercent}%`})</div>{fmtNPR(r.bonusAmount)}</div>}
                   <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Net payable</div><b>{fmtNPR(r.netAmount)}</b></div>
                   <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Expected date</div>{fmtDate(r.expectedDate, dateFormat)}</div>
                   {r.paidDate && <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Paid on</div>{fmtDate(r.paidDate, dateFormat)}</div>}
@@ -1646,8 +1658,15 @@ function MonthlyPayroll({ staffMap, payrollRuns, dateFormat, onGenerate, onUpdat
               ) : (
                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Basic</div><input type="number" value={editDraft.basicSalary} onChange={(e) => setEditDraft((d) => ({ ...d, basicSalary: e.target.value }))} style={inputStyle} /></div>
-                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS %</div><input type="number" value={editDraft.tdsRate} onChange={(e) => setEditDraft((d) => ({ ...d, tdsRate: e.target.value }))} style={inputStyle} /></div>
-                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus %</div><input type="number" value={editDraft.bonusPercent} onChange={(e) => setEditDraft((d) => ({ ...d, bonusPercent: e.target.value }))} style={inputStyle} /></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>TDS % (of basic + bonus)</div><input type="number" value={editDraft.tdsRate} onChange={(e) => setEditDraft((d) => ({ ...d, tdsRate: e.target.value }))} style={inputStyle} /></div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus % (of basic)</div>
+                    <input type="number" value={editDraft.bonusPercent} disabled={editDraft.bonusAmountOverride !== ""} onChange={(e) => setEditDraft((d) => ({ ...d, bonusPercent: e.target.value }))} style={{ ...inputStyle, opacity: editDraft.bonusAmountOverride !== "" ? 0.5 : 1 }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Bonus amount (override — use for part-year staff)</div>
+                    <input type="number" placeholder="Leave blank to use %" value={editDraft.bonusAmountOverride} onChange={(e) => setEditDraft((d) => ({ ...d, bonusAmountOverride: e.target.value }))} style={inputStyle} />
+                  </div>
                   <div><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Expected date</div><input type="date" value={editDraft.expectedDate} onChange={(e) => setEditDraft((d) => ({ ...d, expectedDate: e.target.value }))} style={inputStyle} /></div>
                   <div style={{ gridColumn: "span 2" }}><div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>Paid date (leave blank if not paid yet)</div><input type="date" value={editDraft.paidDate} onChange={(e) => setEditDraft((d) => ({ ...d, paidDate: e.target.value }))} style={inputStyle} /></div>
                 </div>
@@ -4406,10 +4425,13 @@ function MainApp({ user }) {
       const tdsEntry = getEffectiveEntry(Object.values(sp.tdsHistory || {}), range.to);
       const tdsRate = tdsEntry ? tdsEntry.ratePercent : 0;
       const basicSalary = salaryEntry.amount;
-      const tdsAmount = Math.round(basicSalary * tdsRate / 100);
-      const netAmount = basicSalary - tdsAmount;
+      const bonusAmount = 0;
+      // TDS is computed on basic salary + bonus together, so a bonus added later
+      // (via Edit, below) always pushes TDS back up to recompute on the combined amount.
+      const tdsAmount = Math.round((basicSalary + bonusAmount) * tdsRate / 100);
+      const netAmount = basicSalary + bonusAmount - tdsAmount;
       updates[`payrollRuns/${bsMonthKey}/${uid}`] = {
-        company: sp.company, basicSalary, tdsRate, tdsAmount, bonusPercent: 0, bonusAmount: 0, netAmount,
+        company: sp.company, basicSalary, tdsRate, tdsAmount, bonusPercent: 0, bonusAmount, netAmount,
         expectedDate: range.to, status: "scheduled", createdAt: new Date().toISOString(), createdBy: me.name,
       };
       count++;
