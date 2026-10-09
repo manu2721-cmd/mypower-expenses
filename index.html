@@ -2415,7 +2415,7 @@ function TeamAvailability({ allAttendance, staffMap, locations, dateFormat }) {
   );
 }
 
-function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest }) {
+function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onApproveRequest, onRejectRequest, onUndoCheckout }) {
   const [selDate, setSelDate] = useState(localDateKey());
   const [onlyNoCheckout, setOnlyNoCheckout] = useState(false);
   const pending = allAttendance.filter((a) => a.status === "awaiting_checkin");
@@ -2492,8 +2492,12 @@ function TeamAttendance({ allAttendance, staffMap, locations, dateFormat, onAppr
                     {rec && rec.checkInTime && <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtTimeLabel(rec.checkInTime)}{rec.checkOutTime ? " – " + fmtTimeLabel(rec.checkOutTime) : ""}</span>}
                     {noCheckout && <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--no-checkout)", border: "1px solid var(--no-checkout)", borderRadius: 999, padding: "2px 8px" }}>No checkout</span>}
                     <StatusBadge status={status} metaMap={ATT_STATUS_META} />
+                    {rec && rec.checkInTime && rec.checkOutTime && rec.status !== "wfh" && (
+                      <button onClick={() => { if (window.confirm(`Undo ${s.name}'s check-out for ${fmtDate(selDate, dateFormat)}? They'll show as checked in again.`)) onUndoCheckout(s.uid, selDate, rec); }} style={{ ...ghostBtn, padding: "3px 8px", fontSize: 10.5 }}>Undo checkout</button>
+                    )}
                   </div>
                 </div>
+                {rec && rec.checkoutUndoneBy && !rec.checkOutTime && <div style={{ fontSize: 11, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 3 }}>Checkout undone by {rec.checkoutUndoneBy}</div>}
                 {rec && (rec.geoLat != null || rec.checkOutGeoLat != null) && (
                   <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                     <MapLink lat={rec.geoLat} lng={rec.geoLng} label="View check-in location" />
@@ -2810,7 +2814,7 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
             <label style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, margin: "10px 0" }}>
               <input type="checkbox" checked={halfDayToggle} onChange={(e) => setHalfDayToggle(e.target.checked)} /> Leaving early — mark half day
             </label>
-            <button onClick={() => onCheckOut(halfDayToggle)} disabled={attBusy} style={{ ...ghostBtn, width: "100%" }}>{attBusy ? "Checking out…" : "Check out"}</button>
+            <button onClick={() => { if (window.confirm(halfDayToggle ? "Check out now and mark today as a half day?" : "Check out now? You can't undo this yourself — only an admin can.")) onCheckOut(halfDayToggle); }} disabled={attBusy} style={{ ...ghostBtn, width: "100%" }}>{attBusy ? "Checking out…" : "Check out"}</button>
           </div>
         )}
 
@@ -2821,6 +2825,7 @@ function AttendanceTab({ me, myAttendance, location, onCheckIn, onRequestCheckIn
               <StatusBadge status={today.status} metaMap={ATT_STATUS_META} />
             </div>
             {["late", "half_day"].includes(today.status) && <LateRemarkBox remark={today.lateRemark} onSave={(text) => onSaveRemark(dateKey, text)} />}
+            <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 8 }}>Checked out by mistake? Ask your admin to undo it.</div>
           </div>
         )}
       </Card>
@@ -4842,7 +4847,11 @@ function MainApp({ user }) {
   const checkOut = async (halfDay) => {
     setAttBusy(true);
     const updates = { checkOutTime: new Date().toISOString() };
-    if (halfDay) updates.status = "half_day";
+    if (halfDay) {
+      const cur = (myAttendance || []).find((a) => a.date === localDateKey());
+      if (cur && cur.status && cur.status !== "half_day") updates.statusBeforeCheckout = cur.status;
+      updates.status = "half_day";
+    }
     try {
       const geo = await getGeoPosition();
       updates.checkOutGeoLat = geo.lat;
@@ -4851,6 +4860,15 @@ function MainApp({ user }) {
     await db.ref(`attendance/${user.uid}/${localDateKey()}`).update(updates);
     flash(halfDay ? "Checked out — marked half day." : "Checked out.");
     setAttBusy(false);
+  };
+
+  // Admin-only: reverses an accidental checkout (e.g. a double-tap right after
+  // check-in). Restores the pre-half-day status if checkout had changed it.
+  const undoCheckout = async (staffUid, dateKey, rec) => {
+    const updates = { checkOutTime: null, checkOutGeoLat: null, checkOutGeoLng: null, checkoutUndoneBy: me.name, checkoutUndoneAt: new Date().toISOString() };
+    if (rec && rec.statusBeforeCheckout) { updates.status = rec.statusBeforeCheckout; updates.statusBeforeCheckout = null; }
+    await db.ref(`attendance/${staffUid}/${dateKey}`).update(updates);
+    flash(`Checkout undone for ${(staffMap[staffUid] || {}).name || "staff"}.`);
   };
 
   const saveLateRemark = async (dateKey, text) => {
@@ -5083,7 +5101,7 @@ function MainApp({ user }) {
           <TeamAvailability allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} />
         )}
         {section === "attendance" && tab === "team" && isAdmin && (
-          <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} />
+          <TeamAttendance allAttendance={allAttendance} staffMap={staffMap} locations={locations} dateFormat={dateFormat} onApproveRequest={approveCheckInRequest} onRejectRequest={rejectCheckInRequest} onUndoCheckout={undoCheckout} />
         )}
         {section === "attendance" && tab === "teamLeave" && isAdmin && (
           <TeamLeave allLeaveRequests={allLeaveRequests} staffMap={staffMap} dateFormat={dateFormat} onApprove={approveLeaveRequest} onReject={rejectLeaveRequest} onExport={exportLeaveCSV} />
